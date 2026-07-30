@@ -93,7 +93,7 @@ struct LocalCommandBehaviourTests {
         let listed = try #require(await reply("what timers do i have", shared))
         #expect(listed.contains("minutes left"), "got \(listed)")
 
-        #expect(await reply("cancel the timer", shared) == "Cancelled your 10 minutes timer.")
+        #expect(await reply("cancel the timer", shared) == "Timer cancelled.")
         #expect(await reply("what timers do i have", shared) == "No timers running.")
         #expect(await reply("cancel the timer", shared) == "There's no timer running.")
     }

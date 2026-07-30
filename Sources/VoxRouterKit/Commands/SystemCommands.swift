@@ -309,9 +309,9 @@ extension LocalCommand {
         perform: { _, context in
             let cancelled = await context.timers.cancelAll()
             guard !cancelled.isEmpty else { return "There's no timer running." }
-            guard cancelled.count > 1 else {
-                return "Cancelled your \(DurationParser.spoken(cancelled[0].duration)) timer."
-            }
+            // No duration in the singular reply — "your 5 minutes timer" is
+            // broken aloud, and you just asked to cancel the only one there is.
+            guard cancelled.count > 1 else { return "Timer cancelled." }
             return "Cancelled \(cancelled.count) timers."
         }
     )
