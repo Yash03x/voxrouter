@@ -172,6 +172,12 @@ final class AppModel: ObservableObject {
         addProject(path: url.path)
     }
 
+    /// Switches to the unscoped Anywhere project, registering it if needed.
+    func useAnywhere() {
+        let anywhere = config.resolvedProjects.first(where: \.isAnywhere) ?? .anywhere()
+        setActiveProject(anywhere)
+    }
+
     func removeProject(_ project: Project) {
         guard !project.isAnywhere else { return }
         config.projects.removeAll { $0.id == project.id }

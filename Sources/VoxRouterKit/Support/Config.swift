@@ -82,7 +82,13 @@ public struct Config: Codable, Sendable {
         engineModels: [:],
         engineEfforts: [:],
         engineModelChoices: [:],
-        workingDirectory: NSHomeDirectory() + "/code",
+        // Empty on purpose. A built-in default is right only by coincidence:
+        // the fresh-install test picked up an existing ~/code, which is a
+        // *folder of projects* and not a git repo, so codex would have refused
+        // it. Asking once beats guessing wrong quietly. A `workingDirectory`
+        // read from an existing config file is still adopted — that's the
+        // upgrade path, where the value was deliberate.
+        workingDirectory: "",
         projects: [],
         activeProjectID: nil,
         conversationTimeout: 30 * 60,
@@ -177,11 +183,13 @@ public struct Config: Codable, Sendable {
             // present on the author's Mac and on few others — synthesising a
             // project for a missing directory gives a fresh install something
             // that looks configured and fails on first use.
-            let url = URL(fileURLWithPath: workingDirectory)
-            let candidate = Project(
-                id: "default", name: url.lastPathComponent, path: workingDirectory
-            )
-            if candidate.exists { list.insert(candidate, at: 0) }
+            if !workingDirectory.isEmpty {
+                let url = URL(fileURLWithPath: workingDirectory)
+                let candidate = Project(
+                    id: "default", name: url.lastPathComponent, path: workingDirectory
+                )
+                if candidate.exists { list.insert(candidate, at: 0) }
+            }
         }
         if !list.contains(where: { $0.isAnywhere }) {
             list.append(.anywhere())

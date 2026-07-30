@@ -132,8 +132,21 @@ private struct FirstRunSetup: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Button("Choose Folder…") { model.chooseProjectDirectory() }
-                .font(.system(size: 11))
+            HStack(spacing: 8) {
+                Button("Choose Folder…") { model.chooseProjectDirectory() }
+                // Offered up front because "why not just use my whole Mac" is a
+                // reasonable first thought. It works — it just costs undo and
+                // coherent per-project history, so the trade is stated rather
+                // than hidden behind a picker.
+                Button("Use Anywhere") { model.useAnywhere() }
+            }
+            .font(.system(size: 11))
+
+            Text("Anywhere starts in your home folder and can reach any file. "
+                 + "Undo needs a git repository, so it won't work there.")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if model.installedEngineCount == 0 {
                 Divider()
