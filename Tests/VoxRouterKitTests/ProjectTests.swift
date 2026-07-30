@@ -65,16 +65,71 @@ struct ProjectCommandTests {
 
 @Suite("Project configuration")
 struct ProjectConfigTests {
-    @Test("An upgrade seeds a project from workingDirectory")
-    func seedsFromWorkingDirectory() {
+    /// Must be a real directory: a synthesised project pointing at nothing is
+    /// exactly the fresh-install failure this seeding is meant to avoid.
+    @Test("An upgrade seeds a project from an existing workingDirectory")
+    func seedsFromWorkingDirectory() throws {
+        let legacy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-project-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: legacy) }
+
         var config = Config.default
-        config.workingDirectory = "/tmp/legacy-project"
+        config.workingDirectory = legacy.path
         config.projects = []
 
         let projects = config.resolvedProjects
-        #expect(projects.first?.path == "/tmp/legacy-project")
-        #expect(projects.first?.name == "legacy-project")
-        #expect(config.effectiveWorkingDirectory == "/tmp/legacy-project")
+        #expect(projects.first?.path == legacy.path)
+        #expect(projects.first?.name == legacy.lastPathComponent)
+        #expect(config.effectiveWorkingDirectory == legacy.path)
+    }
+
+    /// The default working directory is `~/code`, which exists on the author's
+    /// Mac and few others. Synthesising a project for a directory that isn't
+    /// there gives a fresh install something that looks configured and fails on
+    /// first use.
+    @Test("A missing default directory yields no project, not a broken one")
+    func missingDefaultYieldsNoProject() {
+        var config = Config.default
+        config.projects = []
+        config.workingDirectory = "/tmp/definitely-not-here-\(UUID().uuidString)"
+
+        #expect(config.needsProjectSetup, "a fresh install should ask, not pretend")
+        let onlyAnywhere = config.resolvedProjects.allSatisfy(\.isAnywhere)
+        #expect(onlyAnywhere)
+    }
+
+    @Test("An existing default directory is adopted as the first project")
+    func existingDefaultBecomesProject() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voxrouter-default-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var config = Config.default
+        config.projects = []
+        config.workingDirectory = directory.path
+
+        let needsSetup = config.needsProjectSetup
+        #expect(!needsSetup)
+        #expect(config.effectiveWorkingDirectory == directory.path)
+    }
+
+    /// Falling back to the whole machine because setup wasn't finished is not a
+    /// reasonable default, so Anywhere alone still counts as unconfigured.
+    @Test("Anywhere alone does not count as being set up")
+    func anywhereIsNotSetup() {
+        var config = Config.default
+        config.projects = [.anywhere()]
+        config.workingDirectory = "/tmp/nope-\(UUID().uuidString)"
+        #expect(config.needsProjectSetup)
+    }
+
+    @Test("A real project means setup is complete")
+    func realProjectMeansConfigured() {
+        var config = Config.default
+        config.projects = [Project(id: "a", name: "alpha", path: "/tmp/alpha")]
+        #expect(!config.needsProjectSetup)
     }
 
     /// Whether a task can reach the whole Mac should never be implicit.

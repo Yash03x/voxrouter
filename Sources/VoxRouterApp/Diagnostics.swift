@@ -42,12 +42,37 @@ enum Diagnostics {
         line("  input devices    \(inputs.isEmpty ? "NONE FOUND" : inputs.map(\.localizedName).joined(separator: ", "))")
         line("")
 
+        // Every line marked pass/fail rather than reported as neutral fact: on
+        // a fresh install the interesting question is "what's missing", and a
+        // bare list of values answers it only if you already know what correct
+        // looks like.
         let config = Config.load()
-        line("  working dir      \(config.workingDirectory)")
-        line("  openusage        \(config.openUsageBaseURL.absoluteString)")
-        for engine in EngineRegistry.all(config: config) {
-            line("  engine \(engine.id.padding(toLength: 10, withPad: " ", startingAt: 0))\(engine.binaryPath?.path ?? "NOT INSTALLED")")
+
+        let project = config.activeProject
+        if config.needsProjectSetup {
+            line("  project          NONE — choose one from the menu bar before use")
+        } else if project.exists {
+            let vcs = project.isGitRepository ? "" : "  (not a git repo — codex will refuse it)"
+            line("  project          \(project.name) — \(project.path)\(vcs)")
+        } else {
+            line("  project          \(project.name) — MISSING at \(project.path)")
         }
+
+        let engines = EngineRegistry.all(config: config)
+        let installed = engines.filter(\.isInstalled)
+        if installed.isEmpty {
+            line("  engines          NONE INSTALLED — nothing can run")
+            for engine in engines {
+                line("                   \(engine.displayName): \(engine.installHint)")
+            }
+        } else {
+            for engine in engines {
+                let label = engine.id.padding(toLength: 10, withPad: " ", startingAt: 0)
+                line("  engine \(label)\(engine.binaryPath?.path ?? "not installed")")
+            }
+        }
+
+        line("  openusage        \(openUsageStatus(config))")
         line("")
 
         if #available(macOS 26, *) {
@@ -73,6 +98,25 @@ enum Diagnostics {
         line("                   (if you see no menu bar icon, the app isn't running)")
 
         FileHandle.standardOutput.write(Data(out.utf8))
+    }
+
+    /// Whether the quota dashboard is actually answering. Without it routing
+    /// still works, but falls back to preference order — worth knowing.
+    private static func openUsageStatus(_ config: Config) -> String {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result = "unreachable — routing falls back to preference order"
+        Task {
+            defer { semaphore.signal() }
+            let client = QuotaClient(baseURL: config.openUsageBaseURL)
+            if let snapshot = try? await client.fetchAll() {
+                let names = snapshot.providers.map { $0.displayName ?? $0.providerId }
+                result = names.isEmpty
+                    ? "reachable, but no providers enabled in OpenUsage"
+                    : "reachable — \(names.joined(separator: ", "))"
+            }
+        }
+        _ = semaphore.wait(timeout: .now() + 5)
+        return result
     }
 
     /// Downloads the on-device speech model under *this bundle's* identity.

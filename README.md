@@ -551,8 +551,29 @@ xattr -dr com.apple.quarantine /Applications/VoxRouter.app
 Or right-click the app ▸ Open ▸ Open. If you'd rather not trust a binary from
 the internet — reasonable — build from source below; it takes about 30 seconds.
 
-Apple Silicon only. On first launch it asks for the microphone and downloads a
-one-time on-device speech model.
+Apple Silicon only.
+
+**On first launch** it will ask for the microphone, offer a one-click download
+for the on-device speech model, and ask you to choose a project — the folder
+tasks should run in. You can add more later and switch between them by voice.
+
+If anything looks wrong, this reports each precondition separately:
+
+```bash
+/Applications/VoxRouter.app/Contents/MacOS/VoxRouter --diagnose
+```
+
+```
+project          voxrouter — /Users/you/code/voxrouter
+engine claude    /opt/homebrew/bin/claude
+engine codex     /Applications/ChatGPT.app/Contents/Resources/codex
+openusage        reachable — Codex, Claude
+speech model     en_US — installed
+```
+
+It names what's missing rather than listing values you'd have to know how to
+read: a project that doesn't exist, a folder that isn't a git repo (which codex
+refuses), no engine installed, an unreachable quota dashboard.
 
 ### Build from source
 

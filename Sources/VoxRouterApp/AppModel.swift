@@ -119,6 +119,9 @@ final class AppModel: ObservableObject {
 
     var projects: [Project] { config.resolvedProjects }
     var activeProject: Project { config.activeProject }
+    /// Fresh install: nowhere real to run a task yet.
+    var needsProjectSetup: Bool { config.needsProjectSetup }
+    var installedEngineCount: Int { EngineRegistry.installedIds(config: config).count }
 
     func setActiveProject(_ project: Project) {
         config.activeProjectID = project.id

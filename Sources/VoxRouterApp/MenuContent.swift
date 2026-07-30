@@ -11,7 +11,10 @@ struct MenuContent: View {
             StatusHeader(model: model)
             Divider()
 
-            if model.needsModelDownload || model.downloadProgress != nil {
+            if model.needsProjectSetup {
+                FirstRunSetup(model: model)
+                Divider()
+            } else if model.needsModelDownload || model.downloadProgress != nil {
                 ModelDownload(model: model)
                 Divider()
             } else if let error = model.startupError {
@@ -72,6 +75,47 @@ private struct StatusHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+        }
+        .padding(12)
+    }
+}
+
+/// Shown on a fresh install, where there's nowhere to run a task yet.
+///
+/// The default working directory is `~/code`, which exists on the author's Mac
+/// and few others. Without this the app looks configured and fails on first
+/// use, which is a much worse first impression than being asked one question.
+private struct FirstRunSetup: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "folder.badge.plus")
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Choose a project")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Pick the folder you want tasks to run in. You can add "
+                         + "more later and switch by voice.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button("Choose Folder…") { model.chooseProjectDirectory() }
+                .font(.system(size: 11))
+
+            if model.installedEngineCount == 0 {
+                Divider()
+                Text("No engine installed. VoxRouter needs Claude Code or Codex:")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text("npm i -g @anthropic-ai/claude-code")
+                    .font(.system(size: 10, design: .monospaced))
+                    .textSelection(.enabled)
+            }
         }
         .padding(12)
     }

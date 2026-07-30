@@ -166,16 +166,27 @@ public struct Config: Codable, Sendable {
     public var resolvedProjects: [Project] {
         var list = projects
         if list.filter({ !$0.isAnywhere }).isEmpty {
+            // Only if it actually exists. The default is `~/code`, which is
+            // present on the author's Mac and on few others — synthesising a
+            // project for a missing directory gives a fresh install something
+            // that looks configured and fails on first use.
             let url = URL(fileURLWithPath: workingDirectory)
-            list.insert(
-                Project(id: "default", name: url.lastPathComponent, path: workingDirectory),
-                at: 0
+            let candidate = Project(
+                id: "default", name: url.lastPathComponent, path: workingDirectory
             )
+            if candidate.exists { list.insert(candidate, at: 0) }
         }
         if !list.contains(where: { $0.isAnywhere }) {
             list.append(.anywhere())
         }
         return list
+    }
+
+    /// True when there's nowhere real to run a task yet — a fresh install with
+    /// no project chosen. "Anywhere" doesn't count: falling back to the whole
+    /// machine because setup wasn't finished is not a reasonable default.
+    public var needsProjectSetup: Bool {
+        resolvedProjects.allSatisfy(\.isAnywhere)
     }
 
     public var activeProject: Project {
