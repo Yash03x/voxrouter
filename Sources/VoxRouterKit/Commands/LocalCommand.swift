@@ -142,12 +142,23 @@ extension LocalCommand {
         }
     }
 
-    /// Matches `<prefix> <argument>` and captures the argument.
+    /// Matches `<prefix> <argument>` and captures the argument **as spoken**.
+    ///
+    /// The match is case-insensitive but the captured text keeps its original
+    /// case. It used to return the normalised form, which lowercased the whole
+    /// utterance — so "note down call Dr. Smith about the MRI" was filed as
+    /// "call dr smith about the mri". Everything else that consumes an argument
+    /// (shortcut names, app names, numbers) already compares case-insensitively,
+    /// so nothing needed the flattening; notes were simply losing information.
     static func prefixed(_ prefixes: [String]) -> @Sendable (String) -> Invocation? {
         { text in
-            let normalized = normalize(text)
-            for prefix in prefixes where normalized.hasPrefix(prefix + " ") {
-                let argument = String(normalized.dropFirst(prefix.count + 1))
+            let spoken = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".!?,"))
+            let lowered = spoken.lowercased()
+            for prefix in prefixes where lowered.hasPrefix(prefix + " ") {
+                // Safe to index the original by the prefix length: a prefix
+                // that matched is ASCII, and lowercasing ASCII is one-to-one.
+                let argument = String(spoken.dropFirst(prefix.count + 1))
                     .trimmingCharacters(in: .whitespaces)
                 guard !argument.isEmpty else { continue }
                 return Invocation(argument: argument)

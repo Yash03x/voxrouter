@@ -142,11 +142,19 @@ enum DurationParser {
         return total > 0 ? total : nil
     }
 
+    /// Unit words, matched whole.
+    ///
+    /// This was prefix matching, and `hasPrefix("min")` is true of "minus" —
+    /// so "set a timer for minus five minutes" counted "minus" as a whole
+    /// minute and set six. "minimum", "mine" and "minor" all did the same.
+    private static let unitWords: [String: Int] = [
+        "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
+        "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+        "second": 1, "seconds": 1, "sec": 1, "secs": 1,
+    ]
+
     private static func unitScale(_ token: String) -> Int? {
-        if token.hasPrefix("hour") { return 3600 }
-        if token.hasPrefix("minute") || token.hasPrefix("min") { return 60 }
-        if token.hasPrefix("second") || token.hasPrefix("sec") { return 1 }
-        return nil
+        unitWords[token]
     }
 
     /// The number starting at `index`, and how many tokens it spans.

@@ -12,26 +12,43 @@ public enum Shortcuts {
     ///
     /// Cached briefly: `shortcuts list` shells out, and a spoken command
     /// shouldn't wait on it more than once in a while.
-    public static func available() -> [String] {
-        if let cached = cache, Date().timeIntervalSince(cached.at) < cacheLifetime {
+    public static func available(now: Date = Date()) -> [String] {
+        if let cached = cache, now.timeIntervalSince(cached.at) < cacheLifetime {
             return cached.names
         }
+        // Don't re-attempt straight after a failure. Almost every utterance
+        // consults this list, and the shortcut service really can wedge — when
+        // it does, `list` burns its whole timeout, so retrying each time would
+        // put that delay in front of every single thing you say.
+        if let failedAt, now.timeIntervalSince(failedAt) < retryAfterFailure {
+            return cache?.names ?? []
+        }
+
         // Listing is a database read — if it doesn't answer promptly something
         // is wrong with the service, and a voice command shouldn't wait on it.
-        guard case .completed(0, let stdout, _) = execute(["list"], timeout: 5) else {
-            // Deliberately not cached. Caching a failed lookup would leave every
-            // shortcut unreachable for the next minute over one slow read, and
-            // the symptom — "I don't have a shortcut called X" — points at the
-            // wrong thing entirely.
+        guard case .completed(0, let stdout, _) = execute(["list"], timeout: listTimeout) else {
+            // The last known names are kept rather than replaced with nothing:
+            // reporting "I don't have a shortcut called X" because of a slow
+            // read points at entirely the wrong problem.
             Log.dispatch.notice("could not list shortcuts")
+            failedAt = now
             return cache?.names ?? []
         }
         let names = stdout
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        cache = (names, Date())
+        cache = (names, now)
+        failedAt = nil
         return names
+    }
+
+    /// Fills the cache off the critical path.
+    ///
+    /// Otherwise the first thing said after launch waits on `shortcuts list` —
+    /// about a second — before it can even be classified.
+    public static func warm() {
+        Thread.detachNewThread { _ = available() }
     }
 
     /// A shortcut whose name *is* the whole utterance.
@@ -162,7 +179,18 @@ public enum Shortcuts {
     }
 
     private static let cacheLifetime: TimeInterval = 60
+    /// Long enough that a wedged service isn't retried on every utterance,
+    /// short enough that a transient failure doesn't hide shortcuts for long.
+    static let retryAfterFailure: TimeInterval = 10
+    static let listTimeout: TimeInterval = 5
     nonisolated(unsafe) private static var cache: (names: [String], at: Date)?
+    nonisolated(unsafe) private static var failedAt: Date?
+
+    /// Test seam — resets the process-wide cache.
+    static func resetCache() {
+        cache = nil
+        failedAt = nil
+    }
 
     static func normalize(_ text: String) -> String {
         text.lowercased()

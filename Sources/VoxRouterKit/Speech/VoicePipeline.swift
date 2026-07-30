@@ -66,6 +66,9 @@ public actor VoicePipeline {
     public func start() async {
         await monitor.start()
         await restoreTimersIfNeeded()
+        // Nearly every utterance is checked against the shortcut list, so fill
+        // it now rather than making the first spoken command wait on it.
+        Shortcuts.warm()
     }
 
     /// Applies a settings change (e.g. a model switch) to subsequent dispatches

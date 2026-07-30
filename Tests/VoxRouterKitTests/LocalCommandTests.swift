@@ -161,6 +161,17 @@ struct DurationParserTests {
         #expect(DurationParser.spoken(7200) == "2 hours")
     }
 
+    /// Unit words were matched by prefix, and "minus" starts with "min" — so
+    /// "minus five minutes" counted "minus" as a whole minute and set six.
+    @Test("A word that merely starts like a unit is not a unit")
+    func doesNotTreatWordsAsUnits() {
+        #expect(DurationParser.seconds(in: "set a timer for minus five minutes") == 5 * 60)
+        #expect(DurationParser.seconds(in: "set a timer for a minimum of ten minutes") == 10 * 60)
+        #expect(DurationParser.seconds(in: "set a timer for 5 mins") == 5 * 60)
+        #expect(DurationParser.seconds(in: "set a timer for 30 secs") == 30)
+        #expect(DurationParser.seconds(in: "set a timer for 2 hrs") == 2 * 3600)
+    }
+
     @Test("Mixed units are summed, not read as one of them")
     func sumsMixedUnits() {
         #expect(DurationParser.seconds(in: "2 minutes 30 seconds") == 150)
