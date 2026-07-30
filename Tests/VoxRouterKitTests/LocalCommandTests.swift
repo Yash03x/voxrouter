@@ -179,6 +179,16 @@ struct DurationParserTests {
         #expect(DurationParser.seconds(in: "set a timer for half an hour") == 1800)
     }
 
+    /// "An hour and a half" puts the half after the unit; it parsed as exactly
+    /// one hour, and the confirmation sounded plausible enough that the missing
+    /// thirty minutes went unnoticed.
+    @Test("A trailing half extends the unit before it")
+    func trailingHalf() {
+        #expect(DurationParser.seconds(in: "set a timer for an hour and a half") == 5400)
+        #expect(DurationParser.seconds(in: "set a timer for a minute and a half") == 90)
+        #expect(DurationParser.seconds(in: "set a timer for two hours and a half") == 9000)
+    }
+
     @Test("No duration means no timer")
     func rejectsMissingDuration() {
         #expect(DurationParser.seconds(in: "set a timer") == nil)

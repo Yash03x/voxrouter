@@ -56,8 +56,14 @@ enum SystemControl {
         return process.terminationStatus == 0
     }
 
+    /// Bounded, because osascript can genuinely hang — a stuck scripting
+    /// target held one for over ninety seconds during development. A volume
+    /// command that blocks the pipeline that long is the same failure the
+    /// shortcut runner had, so it gets the same treatment: wait briefly,
+    /// then stop waiting. SIGTERM here is safe; unlike the shortcut service,
+    /// osascript holds no state anyone else depends on.
     @discardableResult
-    static func osascript(_ script: String) -> String? {
+    static func osascript(_ script: String, timeout: TimeInterval = 3) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -67,10 +73,26 @@ enum SystemControl {
         process.standardInput = FileHandle.nullDevice
 
         guard (try? process.run()) != nil else { return nil }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+
+        // Drained on its own thread so a full pipe can't deadlock the child.
+        let collected = Locked<Data>(Data())
+        let handle = output.fileHandleForReading
+        let reader = Thread { collected.set(handle.readDataToEndOfFile()) }
+        reader.stackSize = 64 * 1024
+        reader.start()
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            Log.dispatch.notice("osascript timed out; terminating it")
+            process.terminate()
+            return nil
+        }
+
         guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        return String(decoding: collected.get(), as: UTF8.self)
     }
 }
 
@@ -109,6 +131,7 @@ enum DurationParser {
         var pending: Int?
         var pendingHalf = false
         var sawUnit = false
+        var lastScale = 0
         var index = 0
 
         while index < tokens.count {
@@ -129,8 +152,17 @@ enum DurationParser {
                 pending = nil
                 pendingHalf = false
                 sawUnit = true
+                lastScale = scale
             }
             index += 1
+        }
+
+        // "an hour and a half" puts the half *after* the unit, so it's still
+        // pending when the tokens run out. It halves whatever unit came last —
+        // this parsed as exactly one hour before, and the confirmation sounded
+        // plausible enough that the missing thirty minutes went unnoticed.
+        if pendingHalf, lastScale > 0 {
+            total += lastScale / 2
         }
 
         if !sawUnit {

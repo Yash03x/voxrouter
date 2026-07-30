@@ -16,10 +16,41 @@ public enum Shortcuts {
         if let cached = cache, now.timeIntervalSince(cached.at) < cacheLifetime {
             return cached.names
         }
-        // Don't re-attempt straight after a failure. Almost every utterance
-        // consults this list, and the shortcut service really can wedge — when
-        // it does, `list` burns its whole timeout, so retrying each time would
-        // put that delay in front of every single thing you say.
+
+        // An expired cache is served anyway, and refreshed off this thread.
+        // This sits on the classification path of nearly every utterance, so a
+        // synchronous `shortcuts list` would add a second of dead air to the
+        // first thing said each minute — to catch a shortcut installed within
+        // the last sixty seconds, which is not worth stalling speech for.
+        if let cached = cache {
+            refreshInBackground(now: now)
+            return cached.names
+        }
+
+        // Nothing cached at all (first use, before the launch warm-up has
+        // landed) — only then is it worth blocking, briefly.
+        return refresh(now: now)
+    }
+
+    private static func refreshInBackground(now: Date) {
+        guard beginRefresh() else { return }
+        Thread.detachNewThread {
+            defer { endRefresh() }
+            _ = refreshLocked(now: now)
+        }
+    }
+
+    private static func refresh(now: Date) -> [String] {
+        guard beginRefresh() else { return cache?.names ?? [] }
+        defer { endRefresh() }
+        return refreshLocked(now: now)
+    }
+
+    /// The actual fetch. Callers hold the refresh flag, not the state lock.
+    private static func refreshLocked(now: Date) -> [String] {
+        // Don't re-attempt straight after a failure. The shortcut service
+        // really can wedge — when it does, `list` burns its whole timeout,
+        // and retrying on each utterance would stall everything said.
         if let failedAt, now.timeIntervalSince(failedAt) < retryAfterFailure {
             return cache?.names ?? []
         }
@@ -183,8 +214,39 @@ public enum Shortcuts {
     /// short enough that a transient failure doesn't hide shortcuts for long.
     static let retryAfterFailure: TimeInterval = 10
     static let listTimeout: TimeInterval = 5
-    nonisolated(unsafe) private static var cache: (names: [String], at: Date)?
-    nonisolated(unsafe) private static var failedAt: Date?
+
+    /// Guarded by `stateLock`: `warm()` writes from a detached thread while
+    /// the voice pipeline reads from its actor, which without the lock is a
+    /// plain data race on a tuple — exactly the kind that never shows up until
+    /// the first utterance lands during the warm-up read.
+    private static let stateLock = NSLock()
+    nonisolated(unsafe) private static var _cache: (names: [String], at: Date)?
+    nonisolated(unsafe) private static var _failedAt: Date?
+
+    private static var cache: (names: [String], at: Date)? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _cache }
+        set { stateLock.lock(); _cache = newValue; stateLock.unlock() }
+    }
+
+    private static var failedAt: Date? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _failedAt }
+        set { stateLock.lock(); _failedAt = newValue; stateLock.unlock() }
+    }
+
+    /// At most one `shortcuts list` in flight. Without this, every utterance
+    /// in the window after expiry would kick off its own subprocess.
+    nonisolated(unsafe) private static var _refreshing = false
+
+    private static func beginRefresh() -> Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard !_refreshing else { return false }
+        _refreshing = true
+        return true
+    }
+
+    private static func endRefresh() {
+        stateLock.lock(); _refreshing = false; stateLock.unlock()
+    }
 
     /// Test seam — resets the process-wide cache.
     static func resetCache() {

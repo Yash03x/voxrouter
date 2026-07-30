@@ -175,8 +175,9 @@ public enum GitRecovery {
         process.environment = environment
 
         let output = Pipe()
+        let errors = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errors
         process.standardInput = FileHandle.nullDevice
 
         do {
@@ -184,6 +185,15 @@ public enum GitRecovery {
         } catch {
             return nil
         }
+        // Stderr must be drained too, and concurrently: git under odd
+        // permissions can emit warnings by the screenful, and once the
+        // undrained pipe's 64K buffer fills, git blocks mid-write — stdout
+        // then never reaches EOF and undo hangs forever.
+        let errorHandle = errors.fileHandleForReading
+        let drain = Thread { _ = errorHandle.readDataToEndOfFile() }
+        drain.stackSize = 64 * 1024
+        drain.start()
+
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }

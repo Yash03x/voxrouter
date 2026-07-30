@@ -88,10 +88,18 @@ public enum ModelCatalog {
         // -a treats the binary as text; -o prints only the matches.
         process.arguments = ["-aoE", pattern, binary.path]
         let output = Pipe()
+        let errors = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errors
 
         guard (try? process.run()) != nil else { return [] }
+        // Drained concurrently, same as every other subprocess here: an
+        // unread stderr pipe deadlocks the child once its buffer fills.
+        let errorHandle = errors.fileHandleForReading
+        let drain = Thread { _ = errorHandle.readDataToEndOfFile() }
+        drain.stackSize = 64 * 1024
+        drain.start()
+
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
