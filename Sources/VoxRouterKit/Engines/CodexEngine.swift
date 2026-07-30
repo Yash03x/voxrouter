@@ -30,14 +30,21 @@ public struct CodexEngine: Engine {
         self.effortOverride = effortOverride
     }
 
-    /// Read out of the codex binary rather than invented, since a wrong name
-    /// fails at launch. Your account may not have access to all of them, and
-    /// newer ones can appear — `engineModelChoices` extends this list.
+    /// Every model name found in the codex binary, newest first.
+    ///
+    /// Read out of the binary rather than invented, since a wrong name fails at
+    /// launch. Not curated to "the good ones" — which model to use is the
+    /// user's call. Your account may not have access to all of them, and newer
+    /// ones appear over time; `engineModelChoices` extends the list.
     public static let modelChoices = [
-        "gpt-5.6", "gpt-5.6-luna", "gpt-5.6-terra",
-        "gpt-5.5", "gpt-5.4",
-        "gpt-5.3-codex", "gpt-5.2-codex",
+        "gpt-5.6", "gpt-5.6-pro", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra",
+        "gpt-5.5",
+        "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-5.2", "gpt-5.2-codex",
         "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
+        "gpt-5",
+        "gpt-4.1-mini", "gpt-4.1-nano",
     ]
 
     /// Codex accepts one more level than Claude does ("ultra").

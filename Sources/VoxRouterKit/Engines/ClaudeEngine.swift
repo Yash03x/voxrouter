@@ -20,17 +20,29 @@ public struct ClaudeEngine: Engine {
         self.effortOverride = effortOverride
     }
 
-    /// Family aliases, each resolving to the latest model in that family.
+    /// Every model alias the CLI accepts, read out of its binary.
     ///
-    /// Read out of the CLI binary, not from `claude --help` — the help text
-    /// lists "'fable', 'opus', or 'sonnet'" as *examples*, and taking that as
-    /// the complete set silently dropped haiku from the picker.
+    /// Not curated: an unpinned family alias resolves to whatever is newest,
+    /// which is a decision the user should get to make rather than have made
+    /// for them. Where a version exists in both dash and compact form
+    /// (`opus-4-5` / `opus45`) only one is listed — they select the same model,
+    /// and offering both would double the menu for nothing. The compact form is
+    /// used where no dash form exists.
     ///
-    /// Version-pinned aliases (`opus-4-5`, `haiku45`, …) and full ids
-    /// (`claude-haiku-4-5-20251001`) are also accepted by the CLI; add any you
-    /// want to `engineModelChoices` rather than listing every historical model
-    /// here.
-    public static let modelChoices = ["opus", "sonnet", "haiku", "fable"]
+    /// `opusplan` is Claude Code's mixed mode: Opus for planning, Sonnet for
+    /// execution.
+    public static let modelChoices = [
+        // Latest of each family.
+        "opus", "sonnet", "haiku", "fable", "opusplan",
+        // Pinned Opus versions, newest first.
+        "opus-5", "opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5", "opus41", "opus40",
+        // Pinned Sonnet versions.
+        "sonnet-5", "sonnet-4-6", "sonnet-4-5", "sonnet37", "sonnet35",
+        // Pinned Haiku versions.
+        "haiku45", "haiku35",
+        // Pinned Fable versions.
+        "fable-5",
+    ]
 
     /// `claude --help` documents `--effort <level>` but not its values; these
     /// are the accepted levels, read out of the CLI bundle.

@@ -314,6 +314,30 @@ struct EngineModelTests {
         }
     }
 
+    /// Which model to use is the user's call, so pinned versions are offered
+    /// rather than only the newest of each family.
+    @Test("Pinned versions are offered, not just family aliases")
+    func offersPinnedVersions() {
+        let claude = ClaudeEngine.modelChoices
+        #expect(claude.contains("opus-4-5"))
+        #expect(claude.contains("sonnet-4-5"))
+        #expect(claude.contains("haiku35"))
+        #expect(claude.contains("opusplan"), "Claude Code's mixed planning mode")
+
+        let codex = CodexEngine.modelChoices
+        #expect(codex.contains("gpt-5.6-pro"))
+        #expect(codex.contains("gpt-5.4-mini"))
+        #expect(codex.count > 10)
+    }
+
+    /// The same model reachable by two spellings would just double the menu.
+    @Test("No duplicate entries in either list")
+    func noDuplicateChoices() {
+        for list in [ClaudeEngine.modelChoices, CodexEngine.modelChoices] {
+            #expect(Set(list).count == list.count)
+        }
+    }
+
     @Test("Model and effort labels are presentable")
     func displayNames() {
         #expect(EngineDisplay.model("sonnet") == "Sonnet")

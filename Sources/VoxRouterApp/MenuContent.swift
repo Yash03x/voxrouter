@@ -318,7 +318,16 @@ private struct OverridePicker: View {
             Menu {
                 Button("Default (from its own config)") { onSelect(nil) }
                 Divider()
-                ForEach(choices, id: \.self) { choice in
+                // Unversioned aliases first — they track the newest model and
+                // are what most people want. Pinned versions follow, separated,
+                // so a twenty-item list stays scannable.
+                let latest = choices.filter { !$0.contains(where: \.isNumber) }
+                let pinned = choices.filter { $0.contains(where: \.isNumber) }
+                ForEach(latest, id: \.self) { choice in
+                    Button(display(choice)) { onSelect(choice) }
+                }
+                if !latest.isEmpty && !pinned.isEmpty { Divider() }
+                ForEach(pinned, id: \.self) { choice in
                     Button(display(choice)) { onSelect(choice) }
                 }
             } label: {
