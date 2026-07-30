@@ -343,7 +343,7 @@ struct EngineModelTests {
     @Test("Every alias renders in the same style")
     func displayNamesAreConsistent() {
         // Family, dash-versioned, compact-versioned, and the mixed mode.
-        #expect(EngineDisplay.model("opus") == "Opus")
+        #expect(EngineDisplay.model("opus") == "Opus (latest)")
         #expect(EngineDisplay.model("opus-5") == "Opus 5")
         #expect(EngineDisplay.model("opus-4-8") == "Opus 4.8")
         #expect(EngineDisplay.model("opus41") == "Opus 4.1")
@@ -371,6 +371,23 @@ struct EngineModelTests {
         #expect(EngineDisplay.model("gpt-5.6-sol") == "GPT-5.6 Sol")
         #expect(EngineDisplay.model("gpt-5.1-codex-max") == "GPT-5.1 Codex Max")
         #expect(EngineDisplay.model("gpt-4.1-nano") == "GPT-4.1 Nano")
+    }
+
+    /// A bare alias and the newest pinned version resolve to the same model
+    /// today, so without a label the menu looks like it's repeating itself.
+    /// They diverge when a new release ships.
+    @Test("Version-tracking aliases are distinguishable from pinned ones")
+    func latestAliasesAreLabelled() {
+        for family in ["opus", "sonnet", "haiku", "fable"] {
+            #expect(
+                EngineDisplay.model(family).hasSuffix("(latest)"),
+                "\(family) tracks new releases and should say so"
+            )
+        }
+        // Pinned versions must not claim to track anything.
+        #expect(!EngineDisplay.model("opus-5").contains("latest"))
+        #expect(!EngineDisplay.model("haiku45").contains("latest"))
+        #expect(!EngineDisplay.model("opusplan").contains("latest"))
     }
 
     @Test("Effort labels are presentable")

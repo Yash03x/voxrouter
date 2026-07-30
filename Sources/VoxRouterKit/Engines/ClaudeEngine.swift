@@ -34,6 +34,12 @@ public struct ClaudeEngine: Engine {
     /// Grouped by family, each family's unversioned alias first. One ordered
     /// list rather than "latest" and "pinned" sections — splitting them made a
     /// single menu look like two.
+    ///
+    /// The bare alias and the newest pinned version currently resolve to the
+    /// same model (measured: `opus` → `claude-opus-5`, same as `opus-5`), which
+    /// makes them look redundant. They aren't: the bare alias follows each new
+    /// release, the pinned one never moves. The picker labels the former
+    /// "(latest)" so the choice is legible.
     public static let modelChoices = [
         "opus", "opus-5", "opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5",
         "opus41", "opus40", "opusplan",

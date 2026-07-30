@@ -678,6 +678,14 @@ The app's ENGINES section has a per-engine model picker, or set it directly:
 "engineModelChoices": { "codex": ["gpt-5.1-codex-max", "gpt-5.1-codex-mini"] }
 ```
 
+### Why "Opus (latest)" and "Opus 5" are both listed
+
+They resolve to the same model *today* — measured against the CLI, `opus` →
+`claude-opus-5`, exactly what `opus-5` gives. The difference is what happens
+next: the bare alias follows each new release, the pinned one never moves. Pick
+the tracking alias to always get the newest, or a pinned version when you want
+the same model in six months.
+
 Claude accepts the aliases `opus`, `sonnet`, `fable` or a full model name. Codex
 model names can't be enumerated from its CLI, so the picker offers whatever is in
 your `~/.codex/config.toml` plus anything you list in `engineModelChoices`.

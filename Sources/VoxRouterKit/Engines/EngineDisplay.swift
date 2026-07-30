@@ -38,14 +38,20 @@ public enum EngineDisplay {
         return raw
     }
 
-    /// `opus` → Opus · `opus-4-8` → Opus 4.8 · `opus41` → Opus 4.1 ·
+    /// `opus` → Opus (latest) · `opus-4-8` → Opus 4.8 · `opus41` → Opus 4.1 ·
     /// `opusplan` → Opus Plan
+    ///
+    /// The "(latest)" matters. Measured against the CLI, `opus` resolves to
+    /// `claude-opus-5` and `opus-5` to the same thing — so today they're
+    /// identical and the menu looked like it was repeating itself. They diverge
+    /// the moment a new Opus ships: the bare alias follows it, the pinned one
+    /// doesn't. Labelling it is the difference between a duplicate and a choice.
     private static func claudeAlias(_ value: String) -> String? {
         for family in claudeFamilies where value.hasPrefix(family) {
             let name = family.capitalized
             var suffix = String(value.dropFirst(family.count))
 
-            if suffix.isEmpty { return name }
+            if suffix.isEmpty { return "\(name) (latest)" }
             // Claude Code's mixed mode: Opus plans, Sonnet executes.
             if suffix == "plan" { return "\(name) Plan" }
 
