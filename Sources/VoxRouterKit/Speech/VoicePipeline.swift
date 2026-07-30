@@ -89,6 +89,21 @@ public actor VoicePipeline {
 
         emit("  “\(transcript.text)”")
 
+        // A pending confirmation takes priority over everything: the next thing
+        // said is an answer, not a new request.
+        if let pending = pendingConfirmation {
+            pendingConfirmation = nil
+            switch DestructiveIntent.interpretReply(transcript.text) {
+            case .affirm:
+                emit("  confirmed")
+                await dispatch(task: pending.task)
+            case .decline, .unclear:
+                emit("  cancelled")
+                await speaker.speak("Cancelled.")
+            }
+            return
+        }
+
         if Self.isResetCommand(transcript.text) {
             await conversation.reset()
             emit("  (conversation cleared)")
@@ -110,8 +125,47 @@ public actor VoicePipeline {
             return
         }
 
+        // Speech recognition mishears, and with approval prompts disabled the
+        // engine acts immediately and irreversibly. This is the only gate
+        // between a mishearing and something unrecoverable.
+        if let risk = DestructiveIntent.assess(transcript.text) {
+            pendingConfirmation = Pending(task: transcript.text, at: Date())
+            emit("  ⚠︎ needs confirmation: \(risk.reason)")
+            await speaker.speak(
+                "That would \(risk.reason). Hold the key and say yes to confirm."
+            )
+            return
+        }
+
         await dispatch(task: transcript.text)
     }
+
+    struct Pending: Sendable {
+        let task: String
+        let at: Date
+    }
+
+    private var pendingConfirmation: Pending? {
+        didSet {
+            // A stale confirmation is dangerous: answering "yes" to something
+            // else minutes later must not run a forgotten destructive task.
+            guard pendingConfirmation != nil else { return }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(60))
+                await self?.expireConfirmation()
+            }
+        }
+    }
+
+    private func expireConfirmation() {
+        guard let pending = pendingConfirmation,
+              Date().timeIntervalSince(pending.at) >= 60 else { return }
+        pendingConfirmation = nil
+        emit("  (confirmation timed out)")
+    }
+
+    /// Exposed for the UI: something is waiting on a yes/no.
+    public var awaitingConfirmation: Bool { pendingConfirmation != nil }
 
     private func dispatch(task: String) async {
         let dispatcher = Dispatcher(config: config, router: router, conversation: conversation)

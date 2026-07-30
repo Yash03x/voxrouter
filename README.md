@@ -429,12 +429,44 @@ voxrouter say --bench "Done."
 Barge-in is wired to the push-to-talk key: the instant it goes down, speech
 stops. Being talked over is the fastest way to make an assistant annoying.
 
-## Setup
+## Install
 
-Requires macOS 15+ (built and tested on 27.0), Swift 6, and OpenUsage running.
+### Download
+
+Grab the latest `VoxRouter-*-macos-arm64.zip` from
+[Releases](https://github.com/Yash03x/voxrouter/releases), unzip, and move
+`VoxRouter.app` to `/Applications`.
+
+**It is ad-hoc signed, not notarized**, so Gatekeeper will refuse it on first
+launch ("Apple could not verify…"). That's expected for an unsigned open-source
+app — proper notarization needs a paid Apple Developer ID. To open it anyway:
 
 ```bash
-swift build -c release
+xattr -dr com.apple.quarantine /Applications/VoxRouter.app
+```
+
+Or right-click the app ▸ Open ▸ Open. If you'd rather not trust a binary from
+the internet — reasonable — build from source below; it takes about 30 seconds.
+
+Apple Silicon only. On first launch it asks for the microphone and downloads a
+one-time on-device speech model.
+
+### Build from source
+
+Requires macOS 26+ (for on-device speech), Swift 6, and
+[OpenUsage](https://www.openusage.ai) running for quota data.
+
+```bash
+git clone https://github.com/Yash03x/voxrouter.git
+cd voxrouter
+./Scripts/build-app.sh          # menu bar app
+swift build -c release          # CLI only
+```
+
+If something misbehaves, this reports every precondition separately:
+
+```bash
+build/VoxRouter.app/Contents/MacOS/VoxRouter --diagnose
 ```
 
 Codex works out of the box — it's found on `PATH`, or falls back to the
@@ -489,6 +521,25 @@ always-on daemon from starting.
 `--skip-git-repo-check` is **not** passed to codex by default: codex refuses to
 run in an untrusted directory, and that guard is worth keeping. Add it here if
 you specifically want it.
+
+### Confirmation on destructive requests
+
+Speech recognition mishears. With approval prompts disabled (below), the engine
+acts on the mishearing immediately and irreversibly — so requests that could
+destroy work are spoken back and require a spoken "yes" before running:
+
+> *"delete everything in the project"*
+> → **"That would delete everything. Hold the key and say yes to confirm."**
+
+It fires on inherently dangerous operations (`rm -rf`, force push,
+`reset --hard`, `drop database`, `sudo`) and on destructive verbs aimed at broad
+targets. It deliberately stays quiet for routine work like *"delete the unused
+import"* — confirming everything would just train you to say yes reflexively,
+which is worse than not asking.
+
+An ambiguous reply counts as "no": if the recogniser mishears the confirmation
+too, the safe reading is decline. Confirmations expire after 60 seconds so a
+later "yes" can't run a forgotten task.
 
 ### Running without approval prompts
 
