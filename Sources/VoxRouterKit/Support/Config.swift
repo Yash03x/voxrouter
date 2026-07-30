@@ -24,6 +24,9 @@ public struct Config: Codable, Sendable {
     /// continuing the last one. A long silence means you've moved on, and
     /// dragging an old task into a new request is worse than starting clean.
     public var conversationTimeout: TimeInterval
+    /// Push-to-talk chord. Nil uses the default, falling back automatically if
+    /// another app already owns it.
+    public var hotkey: HotkeyCombo?
     public var wakePhrases: [String]
     /// `say` voice name; nil uses the system default.
     public var voice: String?
@@ -47,6 +50,7 @@ public struct Config: Codable, Sendable {
         projects: [Project],
         activeProjectID: String?,
         conversationTimeout: TimeInterval,
+        hotkey: HotkeyCombo?,
         wakePhrases: [String],
         voice: String?,
         speechVerbosity: SpokenNarration.Verbosity,
@@ -63,6 +67,7 @@ public struct Config: Codable, Sendable {
         self.projects = projects
         self.activeProjectID = activeProjectID
         self.conversationTimeout = conversationTimeout
+        self.hotkey = hotkey
         self.wakePhrases = wakePhrases
         self.voice = voice
         self.speechVerbosity = speechVerbosity
@@ -81,6 +86,7 @@ public struct Config: Codable, Sendable {
         projects: [],
         activeProjectID: nil,
         conversationTimeout: 30 * 60,
+        hotkey: nil,
         // Deliberately no "hey" prefix: "Hey Siri" is enabled by default on
         // macOS, and a phrase sharing that opening risks cross-triggering
         // whichever assistant hears it first. Two or three distinct syllables
@@ -132,6 +138,7 @@ public struct Config: Codable, Sendable {
         projects = value(.projects, fallback.projects)
         activeProjectID = try? container.decodeIfPresent(String.self, forKey: .activeProjectID)
         conversationTimeout = value(.conversationTimeout, fallback.conversationTimeout)
+        hotkey = try? container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey)
         wakePhrases = value(.wakePhrases, fallback.wakePhrases)
         voice = try? container.decodeIfPresent(String.self, forKey: .voice)
         speechVerbosity = value(.speechVerbosity, fallback.speechVerbosity)
@@ -199,6 +206,9 @@ public struct Config: Codable, Sendable {
 
     /// Where the next task actually runs.
     public var effectiveWorkingDirectory: String { activeProject.path }
+
+    /// The chord to try first.
+    public var preferredHotkey: HotkeyCombo { hotkey ?? .controlOptionSpace }
 
     public func write() throws {
         let fm = FileManager.default

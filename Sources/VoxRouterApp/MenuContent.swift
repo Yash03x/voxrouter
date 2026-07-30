@@ -66,13 +66,41 @@ private struct StatusHeader: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.state.label)
                     .font(.system(size: 13, weight: .semibold))
-                Text(model.transcript.isEmpty
-                     ? "Hold \(model.hotkey.label) to speak"
-                     : model.transcript)
+                if model.transcript.isEmpty {
+                    HStack(spacing: 3) {
+                        Text("Hold")
+                        // A picker rather than static text: the default chord is
+                        // owned by other apps often enough (Alfred, Raycast)
+                        // that "it's taken" needs to come with a way to change
+                        // it.
+                        Menu {
+                            ForEach(model.hotkeyChoices) { choice in
+                                Button {
+                                    model.setHotkey(choice)
+                                } label: {
+                                    if choice == model.hotkey {
+                                        Label(choice.label, systemImage: "checkmark")
+                                    } else {
+                                        Text(choice.label)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text(model.hotkey.label)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        Text("to speak")
+                    }
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(model.transcript)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }

@@ -96,7 +96,19 @@ final class AppModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var speaker: SystemSpeaker?
 
-    let hotkey = HotkeyCombo.controlOptionSpace
+    /// The chord actually bound. May differ from the preference if another
+    /// app owns it.
+    @Published var hotkey = HotkeyCombo.controlOptionSpace
+
+    var hotkeyChoices: [HotkeyCombo] { HotkeyCombo.presets }
+
+    func setHotkey(_ combo: HotkeyCombo) {
+        config.hotkey = combo
+        try? config.write()
+        objectWillChange.send()
+        monitor?.unregister()
+        bindHotkey()
+    }
 
     init(config: Config = .load()) {
         self.config = config
@@ -351,18 +363,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let monitor = HotkeyMonitor()
-        do {
-            try monitor.start(combo: hotkey) { [weak recorder] event in
-                switch event {
-                case .pressed: recorder?.beginRecording()
-                case .released: recorder?.endRecording()
-                }
-            }
-            self.monitor = monitor
-        } catch {
-            startupError = error.localizedDescription
-        }
+        bindHotkey()
 
         setState(.idle)
         startRefreshLoop()
@@ -374,6 +375,32 @@ final class AppModel: ObservableObject {
         Task.detached(priority: .background) {
             EngineRegistry.refreshCatalog(config: currentConfig)
             await MainActor.run { self.objectWillChange.send() }
+        }
+    }
+
+    /// Binds the preferred chord, falling back through the presets if another
+    /// app owns it — reporting a chord the user can't change would leave them
+    /// with no way to talk to the app at all.
+    private func bindHotkey() {
+        let monitor = HotkeyMonitor()
+        do {
+            let bound = try monitor.startWithFallback(
+                preferred: config.preferredHotkey
+            ) { [weak self] event in
+                Task { @MainActor in
+                    switch event {
+                    case .pressed: self?.recorder?.beginRecording()
+                    case .released: self?.recorder?.endRecording()
+                    }
+                }
+            }
+            self.monitor = monitor
+            self.hotkey = bound
+            if bound != config.preferredHotkey {
+                startupError = "\(config.preferredHotkey.label) is taken by another app — using \(bound.label)."
+            }
+        } catch {
+            startupError = "No shortcut could be registered: \(error.localizedDescription)"
         }
     }
 

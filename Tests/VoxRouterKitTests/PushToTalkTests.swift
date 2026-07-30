@@ -268,6 +268,54 @@ struct HotkeyTests {
         #expect(combo.carbonModifiers == 0x1800)
     }
 
+    /// The default was chosen because it happened to be free on one Mac. Plenty
+    /// of apps own it — Alfred, Raycast, input-source switching — and reporting
+    /// "it's taken" to someone with no way to change it leaves them unable to
+    /// use the app at all.
+    @Test("A taken chord falls back to another rather than failing")
+    func fallsBackWhenTaken() throws {
+        let squatter = HotkeyMonitor()
+        let ours = HotkeyMonitor()
+        defer { squatter.unregister(); ours.unregister() }
+
+        let preferred = HotkeyCombo.presets[0]
+        do {
+            try squatter.start(combo: preferred) { _ in }
+        } catch {
+            // Headless environments may refuse registration entirely.
+            return
+        }
+
+        let bound = try ours.startWithFallback(preferred: preferred) { _ in }
+        #expect(bound != preferred, "should have moved to a free chord")
+        #expect(HotkeyCombo.presets.contains(bound))
+    }
+
+    @Test("The preferred chord is used when it's free")
+    func usesPreferredWhenFree() throws {
+        let monitor = HotkeyMonitor()
+        defer { monitor.unregister() }
+        let preferred = HotkeyCombo.controlOptionD
+        guard let bound = try? monitor.startWithFallback(preferred: preferred, onEvent: { _ in })
+        else { return }
+        #expect(bound == preferred)
+    }
+
+    @Test("Presets are distinct and labelled")
+    func presetsAreSane() {
+        let presets = HotkeyCombo.presets
+        #expect(presets.count >= 3, "one alternative isn't a fallback strategy")
+        #expect(Set(presets.map(\.label)).count == presets.count)
+        #expect(presets.allSatisfy { !$0.label.isEmpty })
+    }
+
+    @Test("A chord survives a config round trip")
+    func hotkeyIsCodable() throws {
+        let data = try JSONEncoder().encode(HotkeyCombo.controlOptionV)
+        let decoded = try JSONDecoder().decode(HotkeyCombo.self, from: data)
+        #expect(decoded == HotkeyCombo.controlOptionV)
+    }
+
     @Test("Registering the same chord twice reports it as taken")
     func doubleRegistrationIsReported() throws {
         let first = HotkeyMonitor()

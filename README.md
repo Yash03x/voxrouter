@@ -389,6 +389,13 @@ Hold **⌃⌥Space**, speak, release. Clips are saved as WAVs.
 
 Three decisions worth knowing:
 
+**The chord is changeable.** ⌃⌥Space by default, but plenty of apps own it
+(Alfred, Raycast, input-source switching). If it's taken, VoxRouter falls back
+through ⌃⌥V, ⌥Space, ⌃⌥D and ⌃⇧Space automatically and tells you which it
+landed on; the menu bar panel has a picker to choose directly. Registering a
+chord and reporting "it is taken" to someone with no way to change it would
+leave them unable to use the app at all.
+
 **The chord, not the keyboard's mic key — because that key can't be had.**
 
 This was tested properly rather than assumed. With Accessibility granted and a
