@@ -19,7 +19,10 @@ swift build -c "$CONFIG" --product VoxRouterApp
 BIN="$(swift build -c "$CONFIG" --product VoxRouterApp --show-bin-path)/VoxRouterApp"
 [ -x "$BIN" ] || { echo "error: binary not found at $BIN" >&2; exit 1; }
 
-echo "Assembling $APP…"
+# Braced, because the ellipsis that follows is multibyte: `$APP…` is parsed as a
+# single variable name under some locales and fails with `unbound variable`
+# under `set -u`. It worked in a C-locale shell and broke in a UTF-8 one.
+echo "Assembling ${APP}…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/VoxRouter"
@@ -91,6 +94,28 @@ if [ -z "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
         | grep -oE '"VoxRouter Local[^"]*"' | head -1 | tr -d '"' || true
     )"
   fi
+
+  # A self-signed certificate made in Certificate Assistant is not trusted for
+  # code signing by default, so it exists but `codesign` won't use it. Without
+  # this check the script silently falls back to ad-hoc and the microphone
+  # prompt keeps returning, with nothing explaining why.
+  if [ -z "$VOXROUTER_SIGN_IDENTITY" ]; then
+    untrusted="$(
+      security find-identity -p codesigning 2>/dev/null \
+        | grep -E 'CSSMERR_TP_NOT_TRUSTED' | head -1 || true
+    )"
+    if [ -n "$untrusted" ]; then
+      echo
+      echo "  Found a code-signing certificate that isn't trusted yet:"
+      echo "    ${untrusted#*\"}" | sed 's/".*//;s/^/    /'
+      echo
+      echo "  In Keychain Access: double-click it, expand Trust, set"
+      echo "  'Code Signing' to 'Always Trust', then close the window."
+      echo "  Until then this build is ad-hoc signed and macOS will keep"
+      echo "  asking for the microphone after every rebuild."
+      echo
+    fi
+  fi
 fi
 
 if [ -n "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
@@ -113,7 +138,7 @@ echo
 # Speech model assets are scoped to the requesting app's identity, so a model
 # installed by the CLI does not count for the app. Doing it here means a fresh
 # build is ready to use rather than silently stalling at first launch.
-echo "Checking the speech model for $BUNDLE_ID…"
+echo "Checking the speech model for ${BUNDLE_ID}…"
 "$APP/Contents/MacOS/VoxRouter" --install-model || true
 echo
 echo "  open $APP"

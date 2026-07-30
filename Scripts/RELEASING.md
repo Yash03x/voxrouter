@@ -28,7 +28,25 @@ Create one once, in Keychain Access:
 4. Certificate Type: **Code Signing**
 5. Create, then Done.
 
-That's it — `./Scripts/build-app.sh` finds it automatically from then on, and the
+6. **Then trust it for code signing** — this step is easy to miss and the
+   certificate is useless without it. Double-click **VoxRouter Local**, expand
+   **Trust**, set **Code Signing** to **Always Trust**, and close the window
+   (macOS asks for your password).
+
+Without step 6 the certificate exists but `codesign` refuses it:
+
+```bash
+security find-identity -v -p codesigning
+#      0 valid identities found          ← not usable
+
+security find-identity -p codesigning
+#   1) BA15A477… "VoxRouter Local" (CSSMERR_TP_NOT_TRUSTED)
+```
+
+`build-app.sh` detects exactly this and says so, rather than quietly falling
+back to ad-hoc.
+
+Once trusted, `./Scripts/build-app.sh` finds it automatically, and the
 microphone prompt appears once and stays answered.
 
 To confirm it took:
