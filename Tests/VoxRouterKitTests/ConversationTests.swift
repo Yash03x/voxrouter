@@ -259,6 +259,50 @@ struct EngineModelTests {
         #expect(EngineModel.tomlValue(key: "model", in: "  model   =   'abc'  ") == "abc")
     }
 
+    /// Values read out of the CLI binaries. A wrong one fails at launch, so
+    /// these pin what we believe each engine accepts.
+    @Test("Effort levels match what each CLI accepts")
+    func effortChoices() {
+        #expect(EngineRegistry.effortChoices(for: "claude")
+            == ["minimal", "low", "medium", "high", "xhigh", "max"])
+        // Codex accepts one more level than Claude.
+        #expect(EngineRegistry.effortChoices(for: "codex").contains("ultra"))
+        #expect(EngineRegistry.effortChoices(for: "nope").isEmpty)
+    }
+
+    @Test("An effort override reaches the command line")
+    func effortReachesArguments() {
+        let claude = ClaudeEngine(effortOverride: "xhigh")
+        let claudeArgs = claude.arguments(for: "t", resuming: nil)
+        #expect(claudeArgs.contains("--effort"))
+        #expect(claudeArgs.contains("xhigh"))
+
+        // Codex has no dedicated flag; it takes a config override.
+        let codex = CodexEngine(effortOverride: "ultra")
+        let codexArgs = codex.arguments(for: "t", resuming: nil)
+        #expect(codexArgs.contains("-c"))
+        #expect(codexArgs.contains(#"model_reasoning_effort="ultra""#))
+    }
+
+    @Test("No override leaves the CLI's own config alone")
+    func noOverrideAddsNothing() {
+        #expect(!ClaudeEngine().arguments(for: "t", resuming: nil).contains("--effort"))
+        #expect(!CodexEngine().arguments(for: "t", resuming: nil).contains("-c"))
+    }
+
+    @Test("An override is reported in preference to the CLI's configured value")
+    func overrideWins() {
+        #expect(ClaudeEngine(effortOverride: "low").configuredEffort == "low")
+        #expect(CodexEngine(modelOverride: "gpt-5.4").configuredModel == "gpt-5.4")
+    }
+
+    @Test("The codex task stays last, after any injected flags")
+    func codexTaskRemainsLast() {
+        let args = CodexEngine(modelOverride: "gpt-5.4", effortOverride: "high")
+            .arguments(for: "do the thing", resuming: nil)
+        #expect(args.last == "do the thing")
+    }
+
     @Test("Both engines report something rather than crashing")
     func enginesReportAModel() {
         // Values depend on the machine's config; the contract is only that

@@ -8,34 +8,35 @@ import Foundation
 /// specific model that isn't the one running would be worse than admitting
 /// uncertainty.
 public enum EngineModel {
-    /// `~/.codex/config.toml` → `model = "…"`, plus reasoning effort if set.
-    public static func codex() -> String? {
+    /// `~/.codex/config.toml` → `model = "…"`.
+    public static func codexModel() -> String? {
+        codexConfig().flatMap { tomlValue(key: "model", in: $0) }
+    }
+
+    public static func codexEffort() -> String? {
+        codexConfig().flatMap { tomlValue(key: "model_reasoning_effort", in: $0) }
+    }
+
+    private static func codexConfig() -> String? {
         let path = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex/config.toml")
-        guard let text = try? String(contentsOf: path, encoding: .utf8) else { return nil }
-
-        guard let model = tomlValue(key: "model", in: text) else { return nil }
-        if let effort = tomlValue(key: "model_reasoning_effort", in: text) {
-            return "\(model) · \(effort)"
-        }
-        return model
+        return try? String(contentsOf: path, encoding: .utf8)
     }
 
     /// `~/.claude/settings.json` → `model`, else the account default.
-    public static func claude() -> String? {
+    public static func claudeModel() -> String? {
+        claudeSettings()?["model"] as? String ?? "account default"
+    }
+
+    public static func claudeEffort() -> String? {
+        claudeSettings()?["effortLevel"] as? String
+    }
+
+    private static func claudeSettings() -> [String: Any]? {
         let path = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".claude/settings.json")
-        guard let data = try? Data(contentsOf: path),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return "account default"
-        }
-
-        let model = (object["model"] as? String) ?? "account default"
-        if let effort = object["effortLevel"] as? String {
-            return "\(model) · \(effort)"
-        }
-        return model
+        guard let data = try? Data(contentsOf: path) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     /// Minimal TOML scalar lookup at top level.

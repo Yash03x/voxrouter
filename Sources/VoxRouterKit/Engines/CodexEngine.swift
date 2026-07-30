@@ -17,17 +17,33 @@ public struct CodexEngine: Engine {
     public var extraArgs: [String]
     /// Overrides the model for this run. Nil follows `~/.codex/config.toml`.
     public var modelOverride: String?
+    /// Overrides reasoning effort. Nil follows `~/.codex/config.toml`.
+    public var effortOverride: String?
 
-    public init(extraArgs: [String] = [], modelOverride: String? = nil) {
+    public init(
+        extraArgs: [String] = [],
+        modelOverride: String? = nil,
+        effortOverride: String? = nil
+    ) {
         self.extraArgs = extraArgs
         self.modelOverride = modelOverride
+        self.effortOverride = effortOverride
     }
 
-    /// Deliberately empty by default. Codex model names aren't enumerable from
-    /// the CLI, and offering invented ones would produce runs that fail at
-    /// launch — the app lists whatever `config.toml` actually specifies, plus
-    /// anything the user adds to `engineModelChoices`.
-    public static let modelChoices: [String] = []
+    /// Read out of the codex binary rather than invented, since a wrong name
+    /// fails at launch. Your account may not have access to all of them, and
+    /// newer ones can appear — `engineModelChoices` extends this list.
+    public static let modelChoices = [
+        "gpt-5.6", "gpt-5.6-luna", "gpt-5.6-terra",
+        "gpt-5.5", "gpt-5.4",
+        "gpt-5.3-codex", "gpt-5.2-codex",
+        "gpt-5.1-codex-max", "gpt-5.1-codex-mini",
+    ]
+
+    /// Codex accepts one more level than Claude does ("ultra").
+    public static let effortChoices = [
+        "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+    ]
 
     public var binaryPath: URL? {
         if let onPath = BinaryLocator.find(["codex"], extraPaths: [NSHomeDirectory() + "/.codex/bin"]) {
@@ -45,7 +61,12 @@ public struct CodexEngine: Engine {
 
     public var configuredModel: String? {
         if let modelOverride, !modelOverride.isEmpty { return modelOverride }
-        return EngineModel.codex()
+        return EngineModel.codexModel()
+    }
+
+    public var configuredEffort: String? {
+        if let effortOverride, !effortOverride.isEmpty { return effortOverride }
+        return EngineModel.codexEffort()
     }
 
     /// Codex requires the prompt last, after flags.
@@ -60,6 +81,10 @@ public struct CodexEngine: Engine {
         }
         if let modelOverride, !modelOverride.isEmpty {
             args += ["--model", modelOverride]
+        }
+        if let effortOverride, !effortOverride.isEmpty {
+            // No dedicated flag — codex takes it as a config override.
+            args += ["-c", "model_reasoning_effort=\"\(effortOverride)\""]
         }
         return args + extraArgs + [task]
     }

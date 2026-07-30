@@ -223,38 +223,26 @@ private struct EngineSection: View {
                         .font(.system(size: 9))
                     Text(engine.name)
                         .font(.system(size: 11, weight: .medium))
-                    Spacer(minLength: 6)
+                        .frame(width: 78, alignment: .leading)
 
                     if engine.installed {
-                        let choices = model.modelChoices(for: engine.id)
-                        if choices.isEmpty {
-                            Text(engine.model ?? "—")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Menu {
-                                Button {
-                                    model.setModel(nil, for: engine.id)
-                                } label: {
-                                    Text("Default (from its own config)")
-                                }
-                                Divider()
-                                ForEach(choices, id: \.self) { choice in
-                                    Button(choice) { model.setModel(choice, for: engine.id) }
-                                }
-                            } label: {
-                                Text(engine.model ?? "default")
-                                    .font(.system(size: 10))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                        }
+                        OverridePicker(
+                            current: engine.model,
+                            choices: model.modelChoices(for: engine.id),
+                            onSelect: { model.setModel($0, for: engine.id) }
+                        )
+                        Text("·").foregroundStyle(.quaternary).font(.system(size: 9))
+                        OverridePicker(
+                            current: engine.effort,
+                            choices: model.effortChoices(for: engine.id),
+                            onSelect: { model.setEffort($0, for: engine.id) }
+                        )
+                        Spacer(minLength: 0)
                     } else {
                         Text("not installed")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -306,6 +294,37 @@ private struct ActivitySection: View {
             }
         }
         .padding(12)
+    }
+}
+
+/// A dropdown that overrides one engine setting, with "Default" meaning
+/// "whatever the CLI's own config says" rather than a value of ours.
+private struct OverridePicker: View {
+    let current: String?
+    let choices: [String]
+    let onSelect: (String?) -> Void
+
+    var body: some View {
+        if choices.isEmpty {
+            Text(current ?? "—")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        } else {
+            Menu {
+                Button("Default (from its own config)") { onSelect(nil) }
+                Divider()
+                ForEach(choices, id: \.self) { choice in
+                    Button(choice) { onSelect(choice) }
+                }
+            } label: {
+                Text(current ?? "default")
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
     }
 }
 

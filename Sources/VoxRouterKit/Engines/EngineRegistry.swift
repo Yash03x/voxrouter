@@ -7,13 +7,24 @@ public enum EngineRegistry {
         [
             ClaudeEngine(
                 extraArgs: config.engineArgs["claude"] ?? [],
-                modelOverride: config.engineModels["claude"]
+                modelOverride: config.engineModels["claude"],
+                effortOverride: config.engineEfforts["claude"]
             ),
             CodexEngine(
                 extraArgs: config.engineArgs["codex"] ?? [],
-                modelOverride: config.engineModels["codex"]
+                modelOverride: config.engineModels["codex"],
+                effortOverride: config.engineEfforts["codex"]
             ),
         ]
+    }
+
+    /// Effort levels an engine accepts, ascending.
+    public static func effortChoices(for engineId: String) -> [String] {
+        switch engineId {
+        case "claude": return ClaudeEngine.effortChoices
+        case "codex": return CodexEngine.effortChoices
+        default: return []
+        }
     }
 
     /// Models offered in the app's picker for an engine: its built-in choices,

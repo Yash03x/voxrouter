@@ -54,6 +54,12 @@ public protocol Engine: Sendable {
     /// Which model this engine will use, read from its own configuration.
     /// Nil when it can't be determined.
     var configuredModel: String? { get }
+    /// Reasoning effort this engine will use. Nil when it can't be determined.
+    var configuredEffort: String? { get }
+    /// Effort levels this engine accepts, in ascending order.
+    static var effortChoices: [String] { get }
+    /// Model names this engine accepts. Empty when they can't be enumerated.
+    static var modelChoices: [String] { get }
 
     func arguments(for task: String, resuming sessionId: String?) -> [String]
     /// Parse one line of output into an event.

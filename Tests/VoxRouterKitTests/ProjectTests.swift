@@ -115,6 +115,49 @@ struct ProjectConfigTests {
         #expect(config.activeProject.isAnywhere)
     }
 
+    /// Regression for a silent data-loss bug. With synthesised Codable, adding
+    /// one property made every existing config fail to decode, and `load()`
+    /// then fell back to defaults — discarding the user's projects and engine
+    /// flags with nothing but a log line. A config from an older version must
+    /// still load, keeping every field it does have.
+    @Test("A config missing newer keys still loads, keeping what it has")
+    func toleratesMissingKeys() throws {
+        let old = """
+        {
+          "openUsageBaseURL": "http://127.0.0.1:6736",
+          "quotaRefreshInterval": 20,
+          "routing": {
+            "preferenceOrder": ["codex", "claude"],
+            "highWater": 80, "lowWater": 60, "minimumSwitchGain": 10,
+            "hardCeiling": 95, "blindCooldown": 900
+          },
+          "engineArgs": { "claude": ["--dangerously-skip-permissions"] },
+          "workingDirectory": "/tmp/legacy",
+          "wakePhrases": ["hello"],
+          "conversationTimeout": 600,
+          "speechVerbosity": "minimal"
+        }
+        """
+        let config = try JSONDecoder().decode(Config.self, from: Data(old.utf8))
+
+        // Present keys survive.
+        #expect(config.engineArgs["claude"] == ["--dangerously-skip-permissions"])
+        #expect(config.workingDirectory == "/tmp/legacy")
+        #expect(config.routing.preferenceOrder == ["codex", "claude"])
+        #expect(config.conversationTimeout == 600)
+        // Absent keys take defaults instead of failing the whole decode.
+        #expect(config.engineEfforts.isEmpty)
+        #expect(config.projects.isEmpty)
+        #expect(config.activeProjectID == nil)
+    }
+
+    @Test("An empty object decodes to defaults rather than throwing")
+    func emptyObjectDecodes() throws {
+        let config = try JSONDecoder().decode(Config.self, from: Data("{}".utf8))
+        #expect(config.quotaRefreshInterval == Config.default.quotaRefreshInterval)
+        #expect(config.routing.highWater == Config.default.routing.highWater)
+    }
+
     @Test("Projects survive a config round trip")
     func roundTripsThroughJSON() throws {
         var config = Config.default

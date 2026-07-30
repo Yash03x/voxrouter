@@ -8,6 +8,8 @@ public struct Config: Codable, Sendable {
     public var engineArgs: [String: [String]]
     /// Model override per engine id. Empty/absent follows the CLI's own config.
     public var engineModels: [String: String]
+    /// Reasoning-effort override per engine id.
+    public var engineEfforts: [String: String]
     /// Extra model names to offer in the app's picker, per engine id. Needed for
     /// Codex, whose valid model names can't be enumerated from the CLI.
     public var engineModelChoices: [String: [String]]
@@ -31,12 +33,49 @@ public struct Config: Codable, Sendable {
     public var speechVerbosity: SpokenNarration.Verbosity
     public var speechRate: Int?
 
+    /// Explicit, because declaring `init(from:)` suppresses the synthesised
+    /// memberwise initialiser.
+    public init(
+        openUsageBaseURL: URL,
+        quotaRefreshInterval: TimeInterval,
+        routing: RoutingPolicy,
+        engineArgs: [String: [String]],
+        engineModels: [String: String],
+        engineEfforts: [String: String],
+        engineModelChoices: [String: [String]],
+        workingDirectory: String,
+        projects: [Project],
+        activeProjectID: String?,
+        conversationTimeout: TimeInterval,
+        wakePhrases: [String],
+        voice: String?,
+        speechVerbosity: SpokenNarration.Verbosity,
+        speechRate: Int?
+    ) {
+        self.openUsageBaseURL = openUsageBaseURL
+        self.quotaRefreshInterval = quotaRefreshInterval
+        self.routing = routing
+        self.engineArgs = engineArgs
+        self.engineModels = engineModels
+        self.engineEfforts = engineEfforts
+        self.engineModelChoices = engineModelChoices
+        self.workingDirectory = workingDirectory
+        self.projects = projects
+        self.activeProjectID = activeProjectID
+        self.conversationTimeout = conversationTimeout
+        self.wakePhrases = wakePhrases
+        self.voice = voice
+        self.speechVerbosity = speechVerbosity
+        self.speechRate = speechRate
+    }
+
     public static let `default` = Config(
         openUsageBaseURL: URL(string: "http://127.0.0.1:6736")!,
         quotaRefreshInterval: 20,
         routing: RoutingPolicy(),
         engineArgs: [:],
         engineModels: [:],
+        engineEfforts: [:],
         engineModelChoices: [:],
         workingDirectory: NSHomeDirectory() + "/code",
         projects: [],
@@ -60,6 +99,44 @@ public struct Config: Codable, Sendable {
     public static var stateDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".local/state/voxrouter")
+    }
+
+    /// Field-by-field decoding, so a config written by an older version still
+    /// loads.
+    ///
+    /// With synthesised `Codable`, adding one property makes every existing
+    /// config file fail to decode — and `load()` then silently falls back to
+    /// defaults, quietly discarding the user's projects, engine flags and
+    /// everything else. That happened: adding `engineEfforts` disabled a
+    /// carefully-configured setup with nothing but a log line to show for it.
+    /// Every key is optional here, so a missing one takes its default and the
+    /// rest of the file survives.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Config.default
+
+        func value<T: Decodable>(_ key: CodingKeys, _ defaultValue: T) -> T {
+            guard let decoded = try? container.decodeIfPresent(T.self, forKey: key) else {
+                return defaultValue
+            }
+            return decoded ?? defaultValue
+        }
+
+        openUsageBaseURL = value(.openUsageBaseURL, fallback.openUsageBaseURL)
+        quotaRefreshInterval = value(.quotaRefreshInterval, fallback.quotaRefreshInterval)
+        routing = value(.routing, fallback.routing)
+        engineArgs = value(.engineArgs, fallback.engineArgs)
+        engineModels = value(.engineModels, fallback.engineModels)
+        engineEfforts = value(.engineEfforts, fallback.engineEfforts)
+        engineModelChoices = value(.engineModelChoices, fallback.engineModelChoices)
+        workingDirectory = value(.workingDirectory, fallback.workingDirectory)
+        projects = value(.projects, fallback.projects)
+        activeProjectID = try? container.decodeIfPresent(String.self, forKey: .activeProjectID)
+        conversationTimeout = value(.conversationTimeout, fallback.conversationTimeout)
+        wakePhrases = value(.wakePhrases, fallback.wakePhrases)
+        voice = try? container.decodeIfPresent(String.self, forKey: .voice)
+        speechVerbosity = value(.speechVerbosity, fallback.speechVerbosity)
+        speechRate = try? container.decodeIfPresent(Int.self, forKey: .speechRate)
     }
 
     /// Loads config, falling back to defaults. A malformed config must not stop

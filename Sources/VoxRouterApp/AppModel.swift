@@ -167,10 +167,29 @@ final class AppModel: ObservableObject {
         Task { await pipeline?.updateConfig(updated) }
     }
 
-    var engines: [(id: String, name: String, model: String?, installed: Bool)] {
+    var engines: [(id: String, name: String, model: String?, effort: String?, installed: Bool)] {
         EngineRegistry.all(config: config).map {
-            (id: $0.id, name: $0.displayName, model: $0.configuredModel, installed: $0.isInstalled)
+            (
+                id: $0.id,
+                name: $0.displayName,
+                model: $0.configuredModel,
+                effort: $0.configuredEffort,
+                installed: $0.isInstalled
+            )
         }
+    }
+
+    func effortChoices(for engineId: String) -> [String] {
+        EngineRegistry.effortChoices(for: engineId)
+    }
+
+    func setEffort(_ effort: String?, for engineId: String) {
+        if let effort, !effort.isEmpty {
+            config.engineEfforts[engineId] = effort
+        } else {
+            config.engineEfforts.removeValue(forKey: engineId)
+        }
+        persistAndApply()
     }
 
     /// True when any engine is configured to skip its approval prompts.
@@ -192,6 +211,12 @@ final class AppModel: ObservableObject {
         } else {
             config.engineModels.removeValue(forKey: engineId)
         }
+        persistAndApply()
+    }
+
+    /// Saves the config and pushes it to the running pipeline, so a change
+    /// applies to the next dispatch without a restart.
+    private func persistAndApply() {
         try? config.write()
         objectWillChange.send()
         let updated = config

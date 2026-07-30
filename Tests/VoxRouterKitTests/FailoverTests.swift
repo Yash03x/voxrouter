@@ -12,6 +12,9 @@ private struct FakeEngine: Engine {
     let displayName: String
     let installHint = "n/a"
     let configuredModel: String? = "fake-model"
+    let configuredEffort: String? = "medium"
+    static let effortChoices = ["low", "high"]
+    static let modelChoices = ["fake-model"]
     var binaryPath: URL? { URL(fileURLWithPath: "/usr/bin/true") }
 
     func arguments(for task: String, resuming sessionId: String?) -> [String] { [task] }

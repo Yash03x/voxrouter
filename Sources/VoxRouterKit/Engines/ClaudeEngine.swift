@@ -7,14 +7,25 @@ public struct ClaudeEngine: Engine {
     public var extraArgs: [String]
     /// Overrides the model for this run. Nil follows the CLI's own config.
     public var modelOverride: String?
+    /// Overrides reasoning effort. Nil follows `~/.claude/settings.json`.
+    public var effortOverride: String?
 
-    public init(extraArgs: [String] = [], modelOverride: String? = nil) {
+    public init(
+        extraArgs: [String] = [],
+        modelOverride: String? = nil,
+        effortOverride: String? = nil
+    ) {
         self.extraArgs = extraArgs
         self.modelOverride = modelOverride
+        self.effortOverride = effortOverride
     }
 
     /// Aliases documented by `claude --help`. Full names also work.
     public static let modelChoices = ["opus", "sonnet", "fable"]
+
+    /// `claude --help` documents `--effort <level>` but not its values; these
+    /// are the accepted levels, read out of the CLI bundle.
+    public static let effortChoices = ["minimal", "low", "medium", "high", "xhigh", "max"]
 
     public var binaryPath: URL? {
         BinaryLocator.find(["claude"], extraPaths: [NSHomeDirectory() + "/.claude/local"])
@@ -28,7 +39,12 @@ public struct ClaudeEngine: Engine {
         // An override is what will actually run, so report that in preference
         // to the CLI's own configured value.
         if let modelOverride, !modelOverride.isEmpty { return modelOverride }
-        return EngineModel.claude()
+        return EngineModel.claudeModel()
+    }
+
+    public var configuredEffort: String? {
+        if let effortOverride, !effortOverride.isEmpty { return effortOverride }
+        return EngineModel.claudeEffort()
     }
 
     public func arguments(for task: String, resuming sessionId: String?) -> [String] {
@@ -38,6 +54,9 @@ public struct ClaudeEngine: Engine {
         }
         if let modelOverride, !modelOverride.isEmpty {
             args += ["--model", modelOverride]
+        }
+        if let effortOverride, !effortOverride.isEmpty {
+            args += ["--effort", effortOverride]
         }
         return args + extraArgs
     }

@@ -139,7 +139,8 @@ struct VoxRouterCLI {
         for engine in EngineRegistry.all(config: config) {
             if let path = engine.binaryPath {
                 print("✓ \(engine.displayName)  \(path.path)")
-                print("    model: \(engine.configuredModel ?? "unknown")")
+                print("    model:  \(engine.configuredModel ?? "unknown")")
+                print("    effort: \(engine.configuredEffort ?? "default")")
             } else {
                 print("✗ \(engine.displayName)  not installed — \(engine.installHint)")
             }
@@ -174,8 +175,10 @@ struct VoxRouterCLI {
         _ = try? await monitor.refresh()
 
         let router = EngineRouter(policy: config.routing, monitor: monitor)
+        // Must follow the active project, or the CLI keeps history against a
+        // directory tasks no longer run in.
         let conversation = ConversationStore(
-            workingDirectory: URL(fileURLWithPath: config.workingDirectory),
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
             timeout: config.conversationTimeout
         )
         if startFresh { await conversation.reset() }
