@@ -98,9 +98,34 @@ public actor VoicePipeline {
 
     private var speechMuted = false
 
+    private let localCommands = LocalCommandRouter()
+    /// Kept for "say that again".
+    private var lastSpokenReply: String?
+
+    private func localContext() -> LocalContext {
+        LocalContext(
+            notesFile: Config.stateDirectory.appendingPathComponent("notes.md"),
+            quota: { [weak self] in
+                guard let self else { return [] }
+                return await self.monitor.current().snapshot?.providers ?? []
+            },
+            lastReply: { [weak self] in await self?.lastSpokenReply },
+            // A timer firing must speak even though nobody asked just then.
+            notify: { [weak self] line in
+                await self?.say(line)
+                await self?.emitLine(line)
+            }
+        )
+    }
+
+    private func emitLine(_ line: String) {
+        emit("  \(line)")
+    }
+
     /// Single point where speech is suppressed, so every call site honours the
     /// mute without having to remember to check.
     private func say(_ text: String) async {
+        lastSpokenReply = text
         guard !speechMuted else { return }
         await speaker.speak(text)
     }
@@ -168,6 +193,20 @@ public actor VoicePipeline {
             emit("  (conversation cleared)")
             await say("Starting fresh.")
             return
+        }
+
+        // Anything the app can do itself is done here, before an engine is
+        // involved: instant, and it costs no quota.
+        switch await localCommands.handle(transcript.text, context: localContext()) {
+        case .handled(let reply):
+            if let reply {
+                emit("  \(reply)")
+                lastSpokenReply = reply
+                await say(reply)
+            }
+            return
+        case .notMine:
+            break
         }
 
         guard !dryRun else {

@@ -38,7 +38,9 @@ quota, and at least one of Claude Code / Codex installed.
 | Menu bar app + history window | **done** — see [The app](#the-app) |
 | Projects + Anywhere scope | **done** — see [Projects](#projects) |
 | Undo / recovery point | **done** — see [Undo](#undo) |
+| Local commands, Shortcuts, notes, timers | **done**, 30 tests — see [Things it answers itself](#things-it-answers-itself) |
 | Wake word | **not built** — see [Roadmap](#roadmap) |
+| Proactive notifications | **not built** — see [Roadmap](#roadmap) |
 
 ## How engine selection works
 
@@ -213,6 +215,70 @@ the intended scope explicit; they don't enforce it.
 
 The picker also flags a project that isn't a git repository, since Codex refuses
 to run in one — better to see that before a task fails.
+
+## Things it answers itself
+
+Not everything deserves an agent. Dispatching *"what's my quota"* to Claude Code
+takes about twenty seconds and spends quota to answer a question the app already
+knows. A local command layer runs before dispatch and handles what it can:
+
+| Say | What happens |
+| --- | --- |
+| *"what's my quota"* | Reads the monitor already running — instant, no engine |
+| *"note down the lease renews in March"* | Appends to `~/.local/state/voxrouter/notes.md` |
+| *"what are my notes"* | Reads the last few back |
+| *"turn off the lights"* | Runs the shortcut of that name |
+| *"run water eject"* | Same, said explicitly |
+| *"what shortcuts do I have"* | Counts them, names a few |
+| *"set a timer for five minutes"* | Speaks up when it's done |
+| *"volume up"*, *"mute"*, *"set volume to 30"* | Adjusts output |
+| *"open Safari"* | Launches it |
+| *"say that again"* | Repeats the last reply |
+| *"what can you do"* | Lists the above |
+
+Anything else goes to an engine, unchanged.
+
+### The Shortcuts bridge is the whole integration story
+
+One bridge instead of one integration per app. Shortcuts already holds the
+permissions for Calendar, Reminders, Notes, Music, Home and the rest, so running
+a shortcut asks *Shortcuts* to act rather than requesting those grants
+ourselves — and every shortcut you make later is voice-callable with no code
+change here.
+
+### Claiming an utterance requires the target to exist
+
+"Run" and "open" are two of the commonest verbs in a coding request. An earlier
+version matched on the verb alone, so *"run the tests and fix what breaks"* was
+taken as a shortcut name and never reached an engine — the task vanished with a
+cheerful reply. A local command now claims an utterance only when the shortcut
+or app it names actually exists.
+
+The same reasoning removed bare *"note"*: *"note the retry logic is wrong and fix
+it"* is a task. `note down`, `note that` and `remember that` state the intent to
+record; plain `note` doesn't. The asymmetry is deliberate — a note that reaches
+an engine costs a little quota, while a task captured as a note is lost silently.
+
+Saying a shortcut's exact name runs it, but a sentence that merely *contains*
+one doesn't: *"log a film about the trip to Japan"* is not the `Log a film`
+shortcut.
+
+### Never kill a running shortcut
+
+`shortcuts run` can take a while — `Water Eject` plays a tone for half a minute
+— so waiting on it forever would wedge the voice pipeline. The first fix was a
+timeout that killed the process, and it was worse than the problem: SIGKILLing
+`shortcuts run` mid-request left the system's shortcut service so wedged that
+*every* subsequent run hung, CLI and AppleScript alike, until the service was
+restarted.
+
+So the deadline is only about when to stop *waiting*. After 12 seconds it says
+"Water Eject is running" and lets it finish; a stuck one gets SIGTERM after five
+minutes, never SIGKILL.
+
+Failures speak the CLI's own message rather than a generic one, because it's
+usually the actionable part — *"This action requires Letterboxd to be
+installed"* tells you what to fix, where "it didn't finish" never could.
 
 ## Undo
 
@@ -610,6 +676,14 @@ voxrouter engines      # which engine binaries are installed
 voxrouter route        # which engine would be chosen right now, and why
 voxrouter run <task>   # dispatch a task, failing over on quota limits
 voxrouter run --new <task>   # ...starting a fresh conversation
+voxrouter ask <phrase> # what the voice pipeline would do with this, no mic
+```
+
+`ask` is the quickest way to check whether a phrase is handled locally or would
+be sent to an engine:
+
+```bash
+voxrouter ask "run the tests and fix what breaks"
 ```
 
 `VOXROUTER_CWD` overrides the working directory for a single run.
@@ -741,6 +815,16 @@ The voice layer, in the order it should be built:
    config if accuracy on code identifiers disappoints.
 4. ~~**Speaker.**~~ Done — see [Speaking back](#speaking-back).
 5. ~~**Menu bar app.**~~ Done — see [The app](#the-app).
+6. ~~**Local command layer.**~~ Done — see
+   [Things it answers itself](#things-it-answers-itself).
+
+Deliberately not built yet:
+
+- **Wake word**, per item 2 above.
+- **Proactive notifications** — speaking up unprompted (a quota window about to
+  reset, a long task finishing while you're in another app). The hard part isn't
+  the trigger, it's earning the interruption; an assistant that talks when you
+  didn't ask gets muted permanently after about two false positives.
 
 ### Design note: this is a dispatcher, not a chatbot
 

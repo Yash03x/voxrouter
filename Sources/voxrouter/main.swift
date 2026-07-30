@@ -78,6 +78,8 @@ struct VoxRouterCLI {
             await speak(config, arguments: Array(args.dropFirst()))
         case "undo":
             await undo(config, arguments: Array(args.dropFirst()))
+        case "ask":
+            await askLocal(config, arguments: Array(args.dropFirst()))
         case "keys":
             await identifyKeys()
         case "run":
@@ -683,6 +685,34 @@ struct VoxRouterCLI {
         await Accessory.runEventLoop()
     }
 
+    /// Runs an utterance through the local command router only — the same path
+    /// a spoken phrase takes before an engine is considered. Lets every command
+    /// be exercised without a microphone.
+    static func askLocal(_ config: Config, arguments: [String]) async {
+        let text = arguments.joined(separator: " ")
+        guard !text.isEmpty else {
+            FileHandle.standardError.write(Data("usage: voxrouter ask <phrase>\n".utf8))
+            exit(2)
+        }
+
+        let client = QuotaClient(baseURL: config.openUsageBaseURL)
+        let context = LocalContext(
+            notesFile: Config.stateDirectory.appendingPathComponent("notes.md"),
+            quota: { (try? await client.fetchAll())?.providers ?? [] },
+            lastReply: { nil },
+            notify: { line in
+                FileHandle.standardOutput.write(Data(("  ⏰ " + line + "\n").utf8))
+            }
+        )
+
+        switch await LocalCommandRouter().handle(text, context: context) {
+        case .handled(let reply):
+            print(reply ?? "(done, nothing to say)")
+        case .notMine:
+            print("(not a local command — this would go to an engine)")
+        }
+    }
+
     static func printUsage() {
         print("""
         voxrouter — quota-aware dispatcher for Claude Code and Codex
@@ -704,7 +734,7 @@ struct VoxRouterCLI {
           voxrouter say <text>   speak text aloud (shows the narration filter)
           voxrouter say --voices            list installed English voices
           voxrouter undo [--yes] put the project back to before the last task
-          voxrouter keys         identify what a hardware key emits
+          voxrouter ask <phrase> try a local command without speaking\n          voxrouter keys         identify what a hardware key emits
           voxrouter catalog      rescan the CLIs for models and list the menu
         """)
     }
