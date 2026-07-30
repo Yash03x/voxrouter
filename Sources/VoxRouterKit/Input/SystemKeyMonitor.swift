@@ -1,15 +1,25 @@
 import AppKit
 import Foundation
 
-/// Captures hardware keys that `RegisterEventHotKey` can't see — the mic /
-/// dictation key, media keys, and bare modifiers.
+/// Captures hardware keys that `RegisterEventHotKey` can't see — media keys and
+/// similar, which arrive as `NSSystemDefined` events rather than ordinary key
+/// presses.
 ///
-/// These arrive as `NSSystemDefined` events rather than ordinary key presses, so
-/// they need a `CGEventTap`. That has a real cost: the tap must be a
-/// `.defaultTap` to *consume* the key (otherwise Siri or Dictation still fires
-/// alongside us), and a consuming tap requires **Accessibility** permission.
-/// The Carbon path used for chords needs no permission at all, which is why it
-/// remains the default.
+/// **The microphone / dictation key is not among them.** Measured on macOS 27:
+/// pressing it produces no event here at all, even with Accessibility granted
+/// and a consuming `.defaultTap` installed at `.headInsertEventTap`. The system
+/// claims it below the layer a session tap can reach, so no permission or tap
+/// ordering recovers it. If you're reading this because you want that key:
+/// it can't be had this way. Use a chord.
+///
+/// Unused by the default configuration for that reason. Kept because the
+/// `voxrouter keys` diagnostic built on it is what established the above, and
+/// because ordinary media keys *are* capturable if someone wants one.
+///
+/// The cost, when it is used: the tap must be a `.defaultTap` to consume a key
+/// (otherwise the system still acts on it alongside us), and a consuming tap
+/// requires **Accessibility** permission. The Carbon chord path needs none,
+/// which is why it remains the default.
 public final class SystemKeyMonitor: @unchecked Sendable {
     public enum Event: Sendable, Equatable {
         case pressed(keyCode: Int32)

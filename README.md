@@ -389,13 +389,24 @@ Hold **⌃⌥Space**, speak, release. Clips are saved as WAVs.
 
 Three decisions worth knowing:
 
-**The chord, not the keyboard's Siri/mic key.** That key is a hardware media key
-(`NX_KEYTYPE_*`), so capturing it needs a `CGEventTap` with Input Monitoring
-consent *and* still races macOS's own handler, which usually wins — and you'd
-lose Siri. A plain key+modifier chord goes through Carbon's
-`RegisterEventHotKey`, which needs **no permissions at all** and cannot be
-shadowed. It also reports key-**release**, which `NSEvent`-based approaches make
-awkward and which hold-to-talk requires.
+**The chord, not the keyboard's mic key — because that key can't be had.**
+
+This was tested properly rather than assumed. With Accessibility granted and a
+consuming `CGEventTap` installed at `.headInsertEventTap`, pressing the
+microphone key produces **no event at all**. macOS claims it below the layer a
+session tap can reach, so no permission and no tap ordering recovers it. Same
+for using it while keeping Siri — the question doesn't arise, since nothing
+reaches us either way.
+
+A plain key+modifier chord goes through Carbon's `RegisterEventHotKey`, which
+needs **no permissions**, cannot be shadowed, and reports key-**release** —
+which `NSEvent`-based approaches make awkward and hold-to-talk requires.
+
+If you want to check what a given key emits on your machine:
+
+```bash
+voxrouter keys      # press a key; it intercepts nothing while identifying
+```
 
 **The microphone runs continuously.** Starting `AVAudioEngine` costs 100–300 ms,
 which would swallow the first syllable of every command. So the engine is warmed
