@@ -314,6 +314,44 @@ struct EngineModelTests {
         }
     }
 
+    @Test("Model and effort labels are presentable")
+    func displayNames() {
+        #expect(EngineDisplay.model("sonnet") == "Sonnet")
+        #expect(EngineDisplay.model("haiku") == "Haiku")
+        #expect(EngineDisplay.model("gpt-5.6-sol") == "GPT-5.6-sol")
+        #expect(EngineDisplay.effort("max") == "Max")
+        // Spelled out — "Xhigh" reads like a mistake.
+        #expect(EngineDisplay.effort("xhigh") == "Extra High")
+    }
+
+    @Test("Unset values read as Default, not as an internal string")
+    func displayDefaults() {
+        #expect(EngineDisplay.model(nil) == "Default")
+        #expect(EngineDisplay.model("") == "Default")
+        #expect(EngineDisplay.model("account default") == "Default")
+        #expect(EngineDisplay.effort(nil) == "Default")
+    }
+
+    /// Concrete ids are identifiers; title-casing one would make it look like a
+    /// typo, and it still has to match what the CLI accepts.
+    @Test("Concrete model ids are shown verbatim")
+    func displayLeavesIdsAlone() {
+        #expect(EngineDisplay.model("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001")
+        #expect(EngineDisplay.model("opus-4-8") == "opus-4-8")
+    }
+
+    /// The label must never be mistaken for the value: `--model Sonnet` is not
+    /// what the CLI wants.
+    @Test("Every offered choice keeps its canonical value")
+    func choicesStayCanonical() {
+        for choice in ClaudeEngine.modelChoices + CodexEngine.modelChoices {
+            #expect(choice == choice.lowercased(), "\(choice) must stay as the CLI expects")
+        }
+        for choice in EngineRegistry.effortChoices(for: "codex") {
+            #expect(choice == choice.lowercased())
+        }
+    }
+
     @Test("Both engines report something rather than crashing")
     func enginesReportAModel() {
         // Values depend on the machine's config; the contract is only that

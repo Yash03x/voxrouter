@@ -143,8 +143,8 @@ struct VoxRouterCLI {
         for engine in EngineRegistry.all(config: config) {
             if let path = engine.binaryPath {
                 print("✓ \(engine.displayName)  \(path.path)")
-                print("    model:  \(engine.configuredModel ?? "unknown")")
-                print("    effort: \(engine.configuredEffort ?? "default")")
+                print("    Model:  \(EngineDisplay.model(engine.configuredModel))")
+                print("    Effort: \(EngineDisplay.effort(engine.configuredEffort))")
             } else {
                 print("✗ \(engine.displayName)  not installed — \(engine.installHint)")
             }

@@ -229,12 +229,14 @@ private struct EngineSection: View {
                         OverridePicker(
                             current: engine.model,
                             choices: model.modelChoices(for: engine.id),
+                            display: EngineDisplay.model,
                             onSelect: { model.setModel($0, for: engine.id) }
                         )
                         Text("·").foregroundStyle(.quaternary).font(.system(size: 9))
                         OverridePicker(
                             current: engine.effort,
                             choices: model.effortChoices(for: engine.id),
+                            display: EngineDisplay.effort,
                             onSelect: { model.setEffort($0, for: engine.id) }
                         )
                         Spacer(minLength: 0)
@@ -302,11 +304,14 @@ private struct ActivitySection: View {
 private struct OverridePicker: View {
     let current: String?
     let choices: [String]
+    /// Turns a raw value into its label. The values themselves stay canonical —
+    /// they're CLI arguments, not display text.
+    let display: (String?) -> String
     let onSelect: (String?) -> Void
 
     var body: some View {
         if choices.isEmpty {
-            Text(current ?? "—")
+            Text(display(current))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         } else {
@@ -314,10 +319,10 @@ private struct OverridePicker: View {
                 Button("Default (from its own config)") { onSelect(nil) }
                 Divider()
                 ForEach(choices, id: \.self) { choice in
-                    Button(choice) { onSelect(choice) }
+                    Button(display(choice)) { onSelect(choice) }
                 }
             } label: {
-                Text(current ?? "default")
+                Text(display(current))
                     .font(.system(size: 10))
                     .lineLimit(1)
                     .truncationMode(.middle)
