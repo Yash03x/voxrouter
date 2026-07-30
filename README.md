@@ -38,7 +38,7 @@ quota, and at least one of Claude Code / Codex installed.
 | Menu bar app + history window | **done** — see [The app](#the-app) |
 | Projects + Anywhere scope | **done** — see [Projects](#projects) |
 | Undo / recovery point | **done** — see [Undo](#undo) |
-| Local commands, Shortcuts, notes, timers | **done**, 30 tests — see [Things it answers itself](#things-it-answers-itself) |
+| Local commands, Shortcuts, notes, timers | **done** — see [Things it answers itself](#things-it-answers-itself) |
 | Wake word | **not built** — see [Roadmap](#roadmap) |
 | Proactive notifications | **not built** — see [Roadmap](#roadmap) |
 
