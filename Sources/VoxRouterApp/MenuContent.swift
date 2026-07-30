@@ -309,6 +309,60 @@ private struct ActivitySection: View {
     }
 }
 
+// MARK: - Projects
+
+/// Which directory tasks run in.
+///
+/// "Anywhere" is a visible entry rather than a hidden mode: whether a task can
+/// touch the whole Mac should never be something you have to infer.
+private struct ProjectPicker: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: model.activeProject.isAnywhere ? "globe" : "folder")
+                .font(.system(size: 10))
+                .foregroundStyle(model.activeProject.isAnywhere ? .orange : .secondary)
+
+            Menu {
+                ForEach(model.projects) { project in
+                    Button {
+                        model.setActiveProject(project)
+                    } label: {
+                        if project.id == model.activeProject.id {
+                            Label(project.name, systemImage: "checkmark")
+                        } else {
+                            Text(project.name)
+                        }
+                    }
+                }
+                Divider()
+                Button("Add Project…") { model.chooseProjectDirectory() }
+                if !model.activeProject.isAnywhere, model.projects.count > 2 {
+                    Button("Remove “\(model.activeProject.name)”") {
+                        model.removeProject(model.activeProject)
+                    }
+                }
+            } label: {
+                Text(model.activeProject.name)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Spacer(minLength: 0)
+
+            // Codex refuses to run outside a git repo, so flag it here rather
+            // than letting the task fail later.
+            if !model.activeProject.isAnywhere, !model.activeProject.isGitRepository {
+                Label("not a git repo", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+}
+
 // MARK: - Footer
 
 private struct Footer: View {
@@ -318,6 +372,8 @@ private struct Footer: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            ProjectPicker(model: model)
+
             HStack {
                 Button {
                     model.toggleSpeech()
@@ -331,9 +387,6 @@ private struct Footer: View {
                 .font(.system(size: 11))
 
                 Spacer()
-                Text(model.workingDirectoryName)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
             }
 
             HStack(spacing: 8) {

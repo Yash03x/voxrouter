@@ -36,8 +36,8 @@ quota, and at least one of Claude Code / Codex installed.
 | Text-to-speech | **done**, 24 tests — see [Speaking back](#speaking-back) |
 | Voice mode (hold key → speak → dispatch → spoken reply) | **done** — `voxrouter voice` |
 | Menu bar app + history window | **done** — see [The app](#the-app) |
+| Projects + Anywhere scope | **done** — see [Projects](#projects) |
 | Wake word | **not built** — see [Roadmap](#roadmap) |
-| Menu bar app + launchd | **not built** |
 
 ## How engine selection works
 
@@ -169,6 +169,49 @@ neither can `@main`. The views therefore use the pre-macro `ObservableObject` /
 top-level code in `main.swift`). This also happens to be better for the icon
 animation: the status item is animated directly, so it keeps pulsing whether or
 not the panel is open.
+
+## Projects
+
+Tasks run in the **active project**. Pick it from the menu bar, or say so:
+
+> *"switch to torrent client"* → **"Switched to torrent-client."**
+
+Spoken names are matched loosely, because speech gives you "torrent client"
+while the directory is `torrent-client`. Partial names work too — "vox" finds
+`voxrouter`.
+
+Switching requires an explicit verb (`switch to`, `work in`, `go to`). A project
+name inside an ordinary request — *"add tests to voxrouter"* — is part of the
+task, not a command to change scope. Otherwise normal work would silently move
+you somewhere else.
+
+Conversation memory is per-directory, so switching projects also switches
+history: each project remembers its own thread.
+
+Add projects from the menu (**Add Project…**) or in the config:
+
+```json
+"projects": [
+  { "id": "vox", "name": "voxrouter", "path": "/Users/you/code/voxrouter", "isAnywhere": false }
+],
+"activeProjectID": "vox"
+```
+
+### Anywhere
+
+There's always an **Anywhere** entry, which starts at your home directory rather
+than in a project. It's a visible, named choice rather than a hidden mode:
+whether a task can reach the whole Mac shouldn't be something you have to infer
+from a path. The menu bar shows a globe icon when it's active.
+
+Worth being clear about what scoping does and doesn't do: the active project is
+**where the agent starts, not a boundary**. With approval prompts disabled,
+Claude Code can `cd` anywhere regardless — it has no filesystem sandbox. Only
+Codex can be genuinely confined, via `--sandbox workspace-write`. Projects make
+the intended scope explicit; they don't enforce it.
+
+The picker also flags a project that isn't a git repository, since Codex refuses
+to run in one — better to see that before a task fails.
 
 ## Conversation memory
 

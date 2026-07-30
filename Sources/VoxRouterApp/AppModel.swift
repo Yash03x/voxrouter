@@ -90,7 +90,8 @@ final class AppModel: ObservableObject {
     private var recorder: PushToTalkRecorder?
     private var monitor: HotkeyMonitor?
     private var pipeline: VoicePipeline?
-    private let conversation: ConversationStore
+    /// Re-pointed on project switch, so history follows the directory.
+    private var conversation: ConversationStore
     private let quotaClient: QuotaClient
     private var refreshTask: Task<Void, Never>?
     private var speaker: SystemSpeaker?
@@ -101,13 +102,69 @@ final class AppModel: ObservableObject {
         self.config = config
         self.quotaClient = QuotaClient(baseURL: config.openUsageBaseURL)
         self.conversation = ConversationStore(
-            workingDirectory: URL(fileURLWithPath: config.workingDirectory),
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
             timeout: config.conversationTimeout
         )
     }
 
-    var workingDirectoryName: String {
-        URL(fileURLWithPath: config.workingDirectory).lastPathComponent
+    private func reloadConversationStore() async {
+        conversation = ConversationStore(
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
+            timeout: config.conversationTimeout
+        )
+        selectedConversation = nil
+    }
+
+    var workingDirectoryName: String { config.activeProject.name }
+
+    var projects: [Project] { config.resolvedProjects }
+    var activeProject: Project { config.activeProject }
+
+    func setActiveProject(_ project: Project) {
+        config.activeProjectID = project.id
+        try? config.write()
+        objectWillChange.send()
+        let updated = config
+        Task {
+            await pipeline?.updateConfig(updated)
+            await reloadConversationStore()
+            await refresh()
+        }
+    }
+
+    func addProject(path: String) {
+        let url = URL(fileURLWithPath: path)
+        let project = Project(name: url.lastPathComponent, path: url.standardizedFileURL.path)
+        guard project.exists,
+              !config.resolvedProjects.contains(where: { $0.path == project.path }) else { return }
+        config.projects.append(project)
+        setActiveProject(project)
+    }
+
+    /// Opens a directory picker. Uses NSOpenPanel rather than a typed path so
+    /// there's no chance of registering a directory that doesn't exist.
+    func chooseProjectDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add Project"
+        panel.message = "Choose a directory for VoxRouter to work in."
+        // An .accessory app doesn't come forward on its own, so the panel would
+        // otherwise open behind whatever is in front.
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        addProject(path: url.path)
+    }
+
+    func removeProject(_ project: Project) {
+        guard !project.isAnywhere else { return }
+        config.projects.removeAll { $0.id == project.id }
+        if config.activeProjectID == project.id { config.activeProjectID = nil }
+        try? config.write()
+        objectWillChange.send()
+        let updated = config
+        Task { await pipeline?.updateConfig(updated) }
     }
 
     var engines: [(id: String, name: String, model: String?, installed: Bool)] {
@@ -229,6 +286,16 @@ final class AppModel: ObservableObject {
         )
         self.pipeline = pipeline
         await pipeline.start()
+        // A spoken project switch must move the UI too, not just the dispatcher.
+        await pipeline.setProjectChangeHandler { [weak self] project in
+            Task { @MainActor in
+                guard let self else { return }
+                self.config.activeProjectID = project.id
+                await self.reloadConversationStore()
+                self.objectWillChange.send()
+                await self.refresh()
+            }
+        }
 
         let recorder = PushToTalkRecorder(source: MicrophoneSource())
         recorder.onStateChange { [weak self] recorderState in

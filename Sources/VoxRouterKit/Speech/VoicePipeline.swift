@@ -31,12 +31,13 @@ public actor VoicePipeline {
         self.monitor = QuotaMonitor(client: client, interval: config.quotaRefreshInterval)
         self.router = EngineRouter(policy: config.routing, monitor: monitor)
         self.conversation = ConversationStore(
-            workingDirectory: URL(fileURLWithPath: config.workingDirectory),
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
             timeout: config.conversationTimeout
         )
     }
 
-    private let conversation: ConversationStore
+    /// Re-pointed when the project changes, so history follows the directory.
+    private var conversation: ConversationStore
 
     /// Spoken phrases that clear the conversation. Without an explicit way to
     /// say "forget that", an unrelated new request inherits stale context.
@@ -104,6 +105,13 @@ public actor VoicePipeline {
             return
         }
 
+        // Switching project before anything else: the rest of this turn should
+        // be interpreted against the new scope.
+        if let spoken = ProjectCommand.parse(transcript.text) {
+            await switchProject(named: spoken)
+            return
+        }
+
         if Self.isResetCommand(transcript.text) {
             await conversation.reset()
             emit("  (conversation cleared)")
@@ -166,6 +174,45 @@ public actor VoicePipeline {
 
     /// Exposed for the UI: something is waiting on a yes/no.
     public var awaitingConfirmation: Bool { pendingConfirmation != nil }
+
+    /// Called when the project changes, so the app can update and re-point its
+    /// conversation store.
+    public var onProjectChange: (@Sendable (Project) -> Void)?
+
+    public func setProjectChangeHandler(_ handler: @escaping @Sendable (Project) -> Void) {
+        onProjectChange = handler
+    }
+
+    private func switchProject(named spoken: String) async {
+        guard let match = config.resolvedProjects.first(where: { $0.matches(spoken: spoken) }) else {
+            let names = config.resolvedProjects.map(\.name).joined(separator: ", ")
+            emit("  no project matching “\(spoken)” — have: \(names)")
+            await speaker.speak("I don't have a project called \(spoken).")
+            return
+        }
+
+        guard match.exists else {
+            emit("  \(match.name) no longer exists at \(match.path)")
+            await speaker.speak("\(match.name) isn't there any more.")
+            return
+        }
+
+        config.activeProjectID = match.id
+        try? config.write()
+        // Conversation memory is per-directory, so this also swaps history.
+        conversation = ConversationStore(
+            workingDirectory: match.url,
+            timeout: config.conversationTimeout
+        )
+        onProjectChange?(match)
+
+        emit("  → project: \(match.name) (\(match.path))")
+        if match.isAnywhere {
+            await speaker.speak("Working anywhere. Nothing is scoped now.")
+        } else {
+            await speaker.speak("Switched to \(match.name).")
+        }
+    }
 
     private func dispatch(task: String) async {
         let dispatcher = Dispatcher(config: config, router: router, conversation: conversation)

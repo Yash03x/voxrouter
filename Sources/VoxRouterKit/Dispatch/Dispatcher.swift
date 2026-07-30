@@ -91,7 +91,7 @@ public actor Dispatcher {
         task: String,
         onUpdate: @escaping @Sendable (DispatchUpdate) -> Void
     ) async throws -> DispatchResult {
-        let workingDirectory = URL(fileURLWithPath: config.workingDirectory)
+        let workingDirectory = URL(fileURLWithPath: config.effectiveWorkingDirectory)
         let journal = try RunJournal(task: task, workingDirectory: workingDirectory)
 
         var prompt = task
