@@ -76,46 +76,121 @@ enum SystemControl {
 
 /// Parses "five minutes", "90 seconds", "1 hour" into a duration.
 enum DurationParser {
-    private static let words: [String: Int] = [
+    /// Number words are matched as whole tokens, longest form first.
+    ///
+    /// This was a substring scan over a dictionary, and dictionary order is
+    /// unspecified — with per-process hash seeding, "forty five minutes" came
+    /// back as 5, 40 or 45 minutes depending on the run, and "ninety seconds"
+    /// as 9 seconds or a minute. A timer that silently sets a different
+    /// duration each launch is worse than one that refuses to set at all.
+    private static let units: [String: Int] = [
         "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-        "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15,
-        "twenty": 20, "thirty": 30, "forty": 40, "forty five": 45,
-        "fortyfive": 45, "sixty": 60, "ninety": 90, "half": 30,
+        "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+        "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+        "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    ]
+
+    private static let tens: [String: Int] = [
+        "twenty": 20, "thirty": 30, "forty": 40, "fourty": 40, "fifty": 50,
+        "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
     ]
 
     /// Returns seconds, or nil if there's no duration in the text.
+    ///
+    /// Each number is paired with the unit that follows it and the parts are
+    /// summed, so "two minutes thirty seconds" is 150 rather than whichever
+    /// single unit the sentence was scanned for first.
     static func seconds(in text: String) -> Int? {
-        let lowered = text.lowercased()
+        let tokens = text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
 
-        // Speech recognition writes numbers both ways depending on phrasing, so
-        // both digits and words have to work.
-        var amount: Int?
-        if let match = lowered.range(of: #"\d+"#, options: .regularExpression) {
-            amount = Int(lowered[match])
-        } else {
-            for (word, value) in words where lowered.contains(word) {
-                amount = value
-                break
+        var total = 0
+        var pending: Int?
+        var pendingHalf = false
+        var sawUnit = false
+        var index = 0
+
+        while index < tokens.count {
+            if let (value, consumed) = number(at: index, in: tokens) {
+                pending = value
+                index += consumed
+                continue
             }
+            if tokens[index] == "half" {
+                pendingHalf = true
+                index += 1
+                continue
+            }
+            if let scale = unitScale(tokens[index]) {
+                // A unit with no number means one of it: "set a timer for an
+                // hour" states a duration without ever saying a number.
+                total += pendingHalf ? scale / 2 : (pending ?? 1) * scale
+                pending = nil
+                pendingHalf = false
+                sawUnit = true
+            }
+            index += 1
         }
-        guard let amount, amount > 0 else { return nil }
 
-        if lowered.contains("hour") { return amount * 3600 }
-        if lowered.contains("second") { return amount }
-        // Minutes is the sensible default for a spoken timer.
-        return amount * 60
+        if !sawUnit {
+            // "remind me in ten" — a number and no unit. Minutes is what
+            // everyone who says it means.
+            guard let pending, pending > 0 else { return nil }
+            return pending * 60
+        }
+        return total > 0 ? total : nil
     }
 
+    private static func unitScale(_ token: String) -> Int? {
+        if token.hasPrefix("hour") { return 3600 }
+        if token.hasPrefix("minute") || token.hasPrefix("min") { return 60 }
+        if token.hasPrefix("second") || token.hasPrefix("sec") { return 1 }
+        return nil
+    }
+
+    /// The number starting at `index`, and how many tokens it spans.
+    private static func number(at index: Int, in tokens: [String]) -> (value: Int, consumed: Int)? {
+        let token = tokens[index]
+        // Speech recognition writes numbers both ways depending on phrasing, so
+        // digits and words both have to work.
+        if let digits = Int(token) { return (digits, 1) }
+
+        if let ten = tens[token] {
+            // "forty five" is two tokens and one number. Taking the tens word
+            // alone would quietly set a 40-minute timer for a 45-minute ask.
+            if index + 1 < tokens.count, let unit = units[tokens[index + 1]], unit < 10 {
+                return (ten + unit, 2)
+            }
+            return (ten, 1)
+        }
+        if let unit = units[token] { return (unit, 1) }
+        return nil
+    }
+
+    /// Reads a duration back the way a person would say it.
+    ///
+    /// Truncating divisions made this lie: a 90-second timer was confirmed as
+    /// "a minute". The confirmation is the only check the user gets that they
+    /// were heard correctly, so it has to state what was actually set.
     static func spoken(_ seconds: Int) -> String {
-        if seconds % 3600 == 0, seconds >= 3600 {
-            let hours = seconds / 3600
-            return hours == 1 ? "an hour" : "\(hours) hours"
-        }
-        if seconds >= 60 {
+        if seconds < 60 { return "\(seconds) seconds" }
+
+        if seconds < 3600 {
             let minutes = seconds / 60
-            return minutes == 1 ? "a minute" : "\(minutes) minutes"
+            guard seconds % 60 != 0 else {
+                return minutes == 1 ? "a minute" : "\(minutes) minutes"
+            }
+            // "90 seconds" is how people say it; "1 minute 30 seconds" isn't.
+            if minutes == 1 { return "\(seconds) seconds" }
+            return "\(minutes) minutes \(seconds % 60) seconds"
         }
-        return "\(seconds) seconds"
+
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        let hoursPhrase = hours == 1 ? "an hour" : "\(hours) hours"
+        guard minutes > 0 else { return hoursPhrase }
+        return "\(hoursPhrase) and \(minutes) minutes"
     }
 }
 

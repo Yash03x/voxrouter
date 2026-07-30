@@ -16,15 +16,20 @@ public enum Shortcuts {
         if let cached = cache, Date().timeIntervalSince(cached.at) < cacheLifetime {
             return cached.names
         }
-        var names: [String] = []
         // Listing is a database read — if it doesn't answer promptly something
         // is wrong with the service, and a voice command shouldn't wait on it.
-        if case .completed(0, let stdout, _) = execute(["list"], timeout: 5) {
-            names = stdout
-                .split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
+        guard case .completed(0, let stdout, _) = execute(["list"], timeout: 5) else {
+            // Deliberately not cached. Caching a failed lookup would leave every
+            // shortcut unreachable for the next minute over one slow read, and
+            // the symptom — "I don't have a shortcut called X" — points at the
+            // wrong thing entirely.
+            Log.dispatch.notice("could not list shortcuts")
+            return cache?.names ?? []
         }
+        let names = stdout
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
         cache = (names, Date())
         return names
     }
@@ -49,17 +54,53 @@ public enum Shortcuts {
     /// rather than exact text — the same approach that works for project names.
     public static func resolve(_ spoken: String, in names: [String]? = nil) -> String? {
         let candidates = names ?? available()
-        let target = normalize(spoken)
+        let target = words(spoken)
         guard !target.isEmpty else { return nil }
 
-        if let exact = candidates.first(where: { normalize($0) == target }) {
+        if let exact = candidates.first(where: { words($0) == target }) {
             return exact
         }
         // Longest containing match, so "letterboxd diary" prefers
         // "Open my Letterboxd diary" over "Search Letterboxd".
         return candidates
-            .filter { normalize($0).contains(target) || target.contains(normalize($0)) }
-            .max { normalize($0).count < normalize($1).count }
+            .filter { partiallyMatches(name: words($0), target: target) }
+            .max { words($0).count < words($1).count }
+    }
+
+    /// Whether a spoken fragment and a shortcut name refer to the same thing.
+    ///
+    /// Matching is on whole words, and this used to be raw substring
+    /// containment in both directions — which meant a *short* shortcut name was
+    /// a substring of almost any sentence. With a shortcut named "VPN", "run the
+    /// logging pipeline against the vpn box" resolved to it and was swallowed as
+    /// a shortcut invocation. Nobody's own shortcuts happened to be that short,
+    /// but "Log", "Home", "TV" and "PC" are perfectly ordinary names.
+    static func partiallyMatches(name: [String], target: [String]) -> Bool {
+        guard !name.isEmpty else { return false }
+
+        // The name is the longer side: the fragment names part of it, as in
+        // "watchlist" for "Open my watchlist". Safe — whatever the user said is
+        // entirely accounted for by the shortcut's name.
+        if contains(name, target) { return true }
+
+        // The utterance is the longer side, so the name has to account for most
+        // of it. "water eject please" is an invocation; a sentence with the
+        // name buried in it is a task that happens to mention it.
+        guard contains(target, name) else { return false }
+        return Double(name.count) / Double(target.count) >= 0.5
+    }
+
+    static func words(_ text: String) -> [String] {
+        normalize(text).split(separator: " ").map(String.init)
+    }
+
+    /// Whether `needle` appears in `haystack` as a run of whole words.
+    private static func contains(_ haystack: [String], _ needle: [String]) -> Bool {
+        guard !needle.isEmpty, needle.count <= haystack.count else { return false }
+        for start in 0...(haystack.count - needle.count) {
+            if Array(haystack[start..<(start + needle.count)]) == needle { return true }
+        }
+        return false
     }
 
     /// Runs a shortcut and returns whatever it wrote to output, if anything.

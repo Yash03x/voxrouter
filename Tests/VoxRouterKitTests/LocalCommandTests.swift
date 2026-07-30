@@ -101,6 +101,41 @@ struct DurationParserTests {
         #expect(DurationParser.seconds(in: "remind me in ten") == 600)
     }
 
+    /// The bug this replaced: a substring scan over an unordered dictionary.
+    /// "forty five minutes" came back as 5, 40 or 45 minutes depending on the
+    /// process's hash seed, so the same sentence set a different timer per
+    /// launch. Compound numbers are the case that exposed it.
+    @Test("Compound number words parse as one number")
+    func parsesCompoundNumbers() {
+        #expect(DurationParser.seconds(in: "set a timer for forty five minutes") == 45 * 60)
+        #expect(DurationParser.seconds(in: "set a timer for twenty five minutes") == 25 * 60)
+        #expect(DurationParser.seconds(in: "set a timer for thirty minutes") == 30 * 60)
+    }
+
+    /// "ninety" contains "nine"; "seventeen" contains "seven". Whole-token
+    /// matching is what keeps those apart.
+    @Test("Longer number words are not read as the shorter ones inside them")
+    func doesNotMatchNumbersInsideNumbers() {
+        #expect(DurationParser.seconds(in: "set a timer for ninety seconds") == 90)
+        #expect(DurationParser.seconds(in: "set a timer for seventeen minutes") == 17 * 60)
+    }
+
+    @Test("The same phrase always parses the same way")
+    func isDeterministic() {
+        for phrase in ["forty five minutes", "ninety seconds", "seventeen minutes"] {
+            let readings = Set((0..<50).map { _ in DurationParser.seconds(in: phrase) })
+            #expect(readings.count == 1, "\"\(phrase)\" parsed \(readings.count) different ways")
+        }
+    }
+
+    /// "Set a timer for an hour" states a duration without a number.
+    @Test("A unit with no number means one of it")
+    func impliedSingleUnit() {
+        #expect(DurationParser.seconds(in: "set a timer for an hour") == 3600)
+        #expect(DurationParser.seconds(in: "set a timer for a minute") == 60)
+        #expect(DurationParser.seconds(in: "set a timer for half an hour") == 1800)
+    }
+
     @Test("No duration means no timer")
     func rejectsMissingDuration() {
         #expect(DurationParser.seconds(in: "set a timer") == nil)
@@ -113,6 +148,36 @@ struct DurationParserTests {
         #expect(DurationParser.spoken(300) == "5 minutes")
         #expect(DurationParser.spoken(3600) == "an hour")
         #expect(DurationParser.spoken(30) == "30 seconds")
+    }
+
+    /// The confirmation is the user's only check that they were heard, so a
+    /// truncating division that reported a 90-second timer as "a minute" was
+    /// worse than a clumsy phrasing.
+    @Test("The confirmation never understates the timer that was set")
+    func confirmationIsTruthful() {
+        #expect(DurationParser.spoken(90) == "90 seconds")
+        #expect(DurationParser.spoken(150) == "2 minutes 30 seconds")
+        #expect(DurationParser.spoken(5400) == "an hour and 30 minutes")
+        #expect(DurationParser.spoken(7200) == "2 hours")
+    }
+
+    @Test("Mixed units are summed, not read as one of them")
+    func sumsMixedUnits() {
+        #expect(DurationParser.seconds(in: "2 minutes 30 seconds") == 150)
+        #expect(DurationParser.seconds(in: "an hour and 30 minutes") == 5400)
+        #expect(DurationParser.seconds(in: "one hour two minutes three seconds") == 3723)
+    }
+
+    /// Whatever the phrasing, saying it back must mean the same duration.
+    @Test("Parse and read-back agree", arguments: [
+        "90 seconds", "forty five minutes", "an hour", "half an hour",
+        "5 minutes", "ninety seconds", "two hours", "2 minutes 30 seconds",
+        "an hour and 30 minutes", "1 hour 5 minutes",
+    ])
+    func roundTrips(_ phrase: String) throws {
+        let parsed = try #require(DurationParser.seconds(in: phrase))
+        let reparsed = try #require(DurationParser.seconds(in: DurationParser.spoken(parsed)))
+        #expect(reparsed == parsed, "\"\(phrase)\" → \(parsed)s → \"\(DurationParser.spoken(parsed))\"")
     }
 }
 
