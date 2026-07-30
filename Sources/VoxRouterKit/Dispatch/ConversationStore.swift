@@ -28,6 +28,29 @@ public actor ConversationStore {
         public let runId: String
         public let summary: String?
         public let succeeded: Bool
+        /// Where the repository was before this turn ran, so it can be undone.
+        /// Nil when the directory isn't a git repository.
+        public var recovery: RecoveryPoint?
+
+        public init(
+            at: Date,
+            task: String,
+            engineId: String,
+            sessionId: String?,
+            runId: String,
+            summary: String?,
+            succeeded: Bool,
+            recovery: RecoveryPoint? = nil
+        ) {
+            self.at = at
+            self.task = task
+            self.engineId = engineId
+            self.sessionId = sessionId
+            self.runId = runId
+            self.summary = summary
+            self.succeeded = succeeded
+            self.recovery = recovery
+        }
     }
 
     public struct Conversation: Codable, Sendable, Identifiable {
@@ -155,6 +178,12 @@ public actor ConversationStore {
 
     // MARK: - Writing
 
+    /// The most recent turn that can be undone, newest first.
+    public func mostRecentRecoverable(now: Date = Date()) -> Turn? {
+        load()
+        return archive.conversations.last?.turns.last { $0.recovery != nil }
+    }
+
     public func record(
         task: String,
         engineId: String,
@@ -162,6 +191,7 @@ public actor ConversationStore {
         runId: String,
         summary: String?,
         succeeded: Bool,
+        recovery: RecoveryPoint? = nil,
         now: Date = Date()
     ) {
         load()
@@ -186,7 +216,8 @@ public actor ConversationStore {
             sessionId: sessionId,
             runId: runId,
             summary: summary,
-            succeeded: succeeded
+            succeeded: succeeded,
+            recovery: recovery
         ))
         if current.turns.count > maxTurns {
             current.turns.removeFirst(current.turns.count - maxTurns)

@@ -94,6 +94,17 @@ public actor Dispatcher {
         let workingDirectory = URL(fileURLWithPath: config.effectiveWorkingDirectory)
         let journal = try RunJournal(task: task, workingDirectory: workingDirectory)
 
+        // Captured before the engine touches anything. With approval prompts
+        // disabled a misheard instruction changes files immediately, so the
+        // point has to exist beforehand rather than be wished for afterwards.
+        let recovery = GitRecovery.capture(in: workingDirectory, runId: journal.runId)
+        if let recovery {
+            let extra = recovery.hadUncommittedChanges ? " (+ uncommitted changes)" : ""
+            Log.dispatch.notice(
+                "recovery point at \(recovery.shortHead, privacy: .public)\(extra, privacy: .public)"
+            )
+        }
+
         var prompt = task
         var attempt = 0
         var lastEngine: String?
@@ -194,7 +205,8 @@ public actor Dispatcher {
                     sessionId: await journal.sessionId(for: engine.id),
                     runId: journal.runId,
                     summary: text,
-                    succeeded: true
+                    succeeded: true,
+                    recovery: recovery
                 )
                 return DispatchResult(
                     runId: journal.runId,

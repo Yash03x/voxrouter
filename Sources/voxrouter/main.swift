@@ -74,6 +74,8 @@ struct VoxRouterCLI {
             await voice(config, arguments: Array(args.dropFirst()))
         case "say":
             await speak(config, arguments: Array(args.dropFirst()))
+        case "undo":
+            await undo(config, arguments: Array(args.dropFirst()))
         case "run":
             let rest = Array(args.dropFirst())
             let task = rest.filter { !$0.hasPrefix("--") }.joined(separator: " ")
@@ -575,6 +577,43 @@ struct VoxRouterCLI {
         await Accessory.runEventLoop()
     }
 
+    /// Puts the active project back to where it was before the last task.
+    static func undo(_ config: Config, arguments: [String]) async {
+        let conversation = ConversationStore(
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
+            timeout: config.conversationTimeout
+        )
+        guard let turn = await conversation.mostRecentRecoverable(),
+              let point = turn.recovery else {
+            print("Nothing to undo in \(config.activeProject.name).")
+            return
+        }
+
+        print("Would undo: “\(turn.task)”")
+        print("  reset \(config.activeProject.name) to \(point.shortHead)"
+              + (point.hadUncommittedChanges ? ", restoring your uncommitted changes" : ""))
+
+        // Undo throws away whatever the agent did, so it asks unless told not
+        // to — the same bar as any other destructive action.
+        if !arguments.contains("--yes") {
+            print("\nRun again with --yes to do it.")
+            return
+        }
+
+        do {
+            let result = try GitRecovery.restore(point)
+            print("↩︎ reset to \(String(result.head.prefix(8)))")
+            if result.restoredUncommitted { print("  restored your uncommitted changes") }
+            if let undoneRef = result.undoneRef {
+                print("  undone work kept at \(undoneRef)")
+                print("  to get it back: git reset --hard \(undoneRef)")
+            }
+        } catch {
+            FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+            exit(1)
+        }
+    }
+
     static func printUsage() {
         print("""
         voxrouter — quota-aware dispatcher for Claude Code and Codex
@@ -595,6 +634,7 @@ struct VoxRouterCLI {
           voxrouter voice --mute            no spoken replies
           voxrouter say <text>   speak text aloud (shows the narration filter)
           voxrouter say --voices            list installed English voices
+          voxrouter undo [--yes] put the project back to before the last task
         """)
     }
 }

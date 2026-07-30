@@ -130,6 +130,18 @@ public actor VoicePipeline {
 
         // A pending confirmation takes priority over everything: the next thing
         // said is an answer, not a new request.
+        if let pending = pendingUndo {
+            pendingUndo = nil
+            switch DestructiveIntent.interpretReply(transcript.text) {
+            case .affirm:
+                await performUndo(pending)
+            case .decline, .unclear:
+                emit("  cancelled")
+                await say("Left it as it is.")
+            }
+            return
+        }
+
         if let pending = pendingConfirmation {
             pendingConfirmation = nil
             switch DestructiveIntent.interpretReply(transcript.text) {
@@ -140,6 +152,11 @@ public actor VoicePipeline {
                 emit("  cancelled")
                 await say("Cancelled.")
             }
+            return
+        }
+
+        if Self.isUndoCommand(transcript.text) {
+            await handleUndo()
             return
         }
 
@@ -219,6 +236,61 @@ public actor VoicePipeline {
 
     public func setProjectChangeHandler(_ handler: @escaping @Sendable (Project) -> Void) {
         onProjectChange = handler
+    }
+
+    /// Phrases that mean "put it back how it was".
+    ///
+    /// Matched as a whole utterance only — "undo that change to the parser" is a
+    /// task for the engine, not a request to reset the repository.
+    static let undoPhrases = [
+        "undo that", "undo it", "undo", "revert that", "revert it",
+        "roll that back", "roll it back", "put it back", "take that back",
+    ]
+
+    static func isUndoCommand(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!?,"))
+        return undoPhrases.contains(normalized)
+    }
+
+    private func handleUndo() async {
+        guard let turn = await conversation.mostRecentRecoverable(),
+              let point = turn.recovery else {
+            emit("  nothing to undo")
+            await say("I don't have anything to undo.")
+            return
+        }
+
+        // Undo throws away whatever the agent did, so it goes through the same
+        // gate as any other destructive request.
+        pendingUndo = point
+        let changes = point.hadUncommittedChanges ? ", including your uncommitted changes" : ""
+        emit("  ⚠︎ undo would reset to \(point.shortHead)\(changes) — “\(turn.task)”")
+        await say(
+            "That would undo \(SpokenNarration.speakable(turn.task, maxCharacters: 80)) "
+            + "and reset to commit \(point.shortHead). Say yes to confirm."
+        )
+    }
+
+    private var pendingUndo: RecoveryPoint?
+
+    private func performUndo(_ point: RecoveryPoint) async {
+        do {
+            let result = try GitRecovery.restore(point)
+            var line = "  ↩︎ reset to \(point.shortHead)"
+            if result.restoredUncommitted { line += " and restored your uncommitted changes" }
+            if let undoneRef = result.undoneRef {
+                // The undone work is recoverable — an undo you can't reverse is
+                // just a different way to lose work.
+                line += "\n  (undone work kept at \(undoneRef))"
+            }
+            emit(line)
+            await say("Undone. Back at commit \(point.shortHead).")
+        } catch {
+            emit("  ✗ undo failed: \(error.localizedDescription)")
+            await say("I couldn't undo that.")
+        }
     }
 
     private func switchProject(named spoken: String) async {

@@ -37,6 +37,7 @@ quota, and at least one of Claude Code / Codex installed.
 | Voice mode (hold key → speak → dispatch → spoken reply) | **done** — `voxrouter voice` |
 | Menu bar app + history window | **done** — see [The app](#the-app) |
 | Projects + Anywhere scope | **done** — see [Projects](#projects) |
+| Undo / recovery point | **done** — see [Undo](#undo) |
 | Wake word | **not built** — see [Roadmap](#roadmap) |
 
 ## How engine selection works
@@ -212,6 +213,53 @@ the intended scope explicit; they don't enforce it.
 
 The picker also flags a project that isn't a git repository, since Codex refuses
 to run in one — better to see that before a task fails.
+
+## Undo
+
+Every task in a git repository records where the repository was before it ran.
+
+> *"undo that"* → **"That would undo … and reset to commit 9506651b. Say yes to confirm."**
+
+Or from the CLI:
+
+```bash
+voxrouter undo          # shows what it would do
+voxrouter undo --yes    # does it
+```
+
+This matters most with approval prompts disabled: an agent acting on a misheard
+instruction changes files immediately and without asking, so the recovery point
+has to exist *before* it starts rather than be wished for afterwards.
+
+Three properties worth knowing:
+
+**Capturing never touches your working tree.** It uses `git stash create`, which
+writes a commit object and changes nothing else — no `git stash`, no moving your
+changes out from under yourself or the agent, and nothing added to `git stash
+list`. Snapshots live under `refs/voxrouter/` so garbage collection can't drop
+them and your stash list stays yours.
+
+**Uncommitted work is restored too.** If you had unsaved edits when the task
+started, undo brings them back — losing your own work while undoing the agent's
+would be worse than not undoing at all.
+
+**Undo is itself reversible.** It anchors whatever it's about to discard before
+resetting, and tells you the ref:
+
+```
+↩︎ reset to 9506651b
+  restored your uncommitted changes
+  undone work kept at refs/voxrouter/snapshots/undone-20260730-193213-7705
+```
+
+An undo you can't reverse is just a different way to lose work. Note the
+anchoring handles the case where the agent *committed*: the tree is then clean,
+`stash create` returns nothing, and the commits themselves are what's being
+thrown away — so HEAD is anchored directly rather than trusting the reflog not
+to expire.
+
+Spoken undo is matched as a whole utterance only. *"undo that change to the
+parser"* is work for the engine, not a request to reset the repository.
 
 ## Conversation memory
 
