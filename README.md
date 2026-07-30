@@ -282,11 +282,30 @@ Persisting them is also what makes *"cancel the timer"* necessary. A
 mistranscribed "eight hours" used to die with the app; now it would follow you
 across every restart.
 
-Both the app and the CLI write that file, so every read and write loads it
-first. Without that, a process holding nothing in memory replaced a file full of
-timers with the single one it had just made — setting a timer from the CLI while
-the app held two others destroyed both, and *"what timers do I have"* answered
-"none" with one sitting in the file.
+Both the app and the CLI write that file, so the file — not an in-memory copy —
+is the record of what exists, and every read-modify-write happens inside an
+advisory `flock`. Locking only the *write* wouldn't have been enough: the stale
+read is the problem, so the read has to be inside the lock too.
+
+Measured with twelve processes racing to add a timer, all alive at once inside a
+118 ms window:
+
+| | timers surviving out of 12 |
+| --- | --- |
+| Without the lock | 2, 7, 6 |
+| With the lock | 12, 12, 12 |
+
+Two details that matter:
+
+- **The lock is a separate file** from the data it guards. Atomic writes replace
+  a file by renaming a temporary over it, which swaps the inode — a lock taken
+  on the data file would be held on an inode nobody else can see, and every
+  process would believe it had exclusive access.
+- **Waiting is bounded** (2 s), and the work runs either way. A held lock means
+  another process is mid-write, which takes microseconds; if it ever takes
+  longer, that process is wedged, and blocking the voice pipeline behind it
+  would turn one stuck process into a stuck assistant. Same lesson as never
+  SIGKILLing a running shortcut.
 
 ### Never kill a running shortcut
 

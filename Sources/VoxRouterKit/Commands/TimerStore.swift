@@ -30,12 +30,15 @@ public actor TimerStore {
     public static let missedGrace: TimeInterval = 3600
 
     private let file: URL
-    private var pending: [PendingTimer] = []
+    private let lock: FileLock?
+    /// Timers this process is counting down. The *file* is the record of what
+    /// exists; this is only what we're waiting on.
     private var scheduled: [UUID: Task<Void, Never>] = [:]
     private var notify: @Sendable (String) async -> Void = { _ in }
 
     public init(file: URL) {
         self.file = file
+        self.lock = FileLock(at: file.appendingPathExtension("lock"))
     }
 
     public static var `default`: TimerStore {
@@ -48,10 +51,8 @@ public actor TimerStore {
     }
 
     public func schedule(seconds: Int, now: Date = Date()) -> PendingTimer {
-        loadIfNeeded()
         let timer = PendingTimer(dueAt: now.addingTimeInterval(TimeInterval(seconds)), duration: seconds)
-        pending.append(timer)
-        persist()
+        mutate { $0.append(timer) }
         arm(timer, after: TimeInterval(seconds))
         return timer
     }
@@ -61,25 +62,27 @@ public actor TimerStore {
     /// Anything already due is announced as missed rather than silently
     /// dropped — the whole point is that you find out.
     public func restore(now: Date = Date()) {
-        pending = read()
-        loaded = true
-        guard !pending.isEmpty else { return }
-
         var missed: [PendingTimer] = []
-        var live: [PendingTimer] = []
-        for timer in pending {
-            let remaining = timer.dueAt.timeIntervalSince(now)
-            if remaining > 0 {
-                live.append(timer)
-            } else if -remaining <= Self.missedGrace {
-                missed.append(timer)
+        // Claiming the overdue ones and writing back happens under one lock, so
+        // two processes starting together can't both announce the same timer.
+        let live = mutate { stored -> [PendingTimer] in
+            var live: [PendingTimer] = []
+            for timer in stored {
+                let remaining = timer.dueAt.timeIntervalSince(now)
+                if remaining > 0 {
+                    live.append(timer)
+                } else if -remaining <= Self.missedGrace {
+                    missed.append(timer)
+                }
+                // Anything staler than the grace window is dropped in silence.
             }
-            // Anything staler than the grace window is dropped without comment.
+            stored = live
+            return live
         }
 
-        pending = live
-        persist()
-        for timer in live { arm(timer, after: timer.dueAt.timeIntervalSince(now)) }
+        for timer in live where scheduled[timer.id] == nil {
+            arm(timer, after: timer.dueAt.timeIntervalSince(now))
+        }
 
         guard !missed.isEmpty else { return }
         let notify = notify
@@ -99,39 +102,53 @@ public actor TimerStore {
     /// restart with no way to be rid of it.
     @discardableResult
     public func cancelAll() -> [PendingTimer] {
-        loadIfNeeded()
-        let cancelled = pending
         for task in scheduled.values { task.cancel() }
         scheduled.removeAll()
-        pending.removeAll()
-        persist()
-        return cancelled
+        // Clears timers set by other processes too — "cancel the timer" means
+        // all of them, not just the ones this process happens to be counting.
+        return mutate { stored in
+            let cancelled = stored
+            stored = []
+            return cancelled
+        }
     }
 
     public func timers(now: Date = Date()) -> [PendingTimer] {
-        loadIfNeeded()
-        return pending.filter { $0.dueAt > now }.sorted { $0.dueAt < $1.dueAt }
+        read().filter { $0.dueAt > now }.sorted { $0.dueAt < $1.dueAt }
     }
 
     // MARK: - Plumbing
 
-    private var loaded = false
-
-    /// Reads what's on disk before the first use, without arming or announcing.
+    /// Reads, changes and writes the file without another process interleaving.
     ///
-    /// Every read and write goes through this, because `persist()` writes the
-    /// in-memory list wholesale: a process that hadn't loaded would replace a
-    /// file full of timers with only the one it just made. That is exactly what
-    /// happened — setting a timer from the CLI while the app held two others
-    /// destroyed both, and "what timers do I have" answered "none" with one
-    /// sitting in the file.
-    private func loadIfNeeded() {
-        guard !loaded else { return }
-        loaded = true
-        pending = read()
+    /// The whole cycle is inside the lock, not just the write. Keeping an
+    /// in-memory copy and writing it back was the original bug: a process that
+    /// hadn't read the file replaced a file full of timers with the one it had
+    /// just made, so setting a timer from the CLI while the app held two others
+    /// destroyed both. Locking only the write wouldn't have helped — the stale
+    /// copy is the problem, so the read has to be inside the lock too.
+    @discardableResult
+    private func mutate<T>(_ body: (inout [PendingTimer]) -> T) -> T {
+        withFileLock {
+            var stored = readUnlocked()
+            let result = body(&stored)
+            write(stored)
+            return result
+        }
     }
 
     private func read() -> [PendingTimer] {
+        withFileLock { readUnlocked() }
+    }
+
+    /// Falls back to running unlocked if the lock file couldn't be opened —
+    /// a read-only home directory shouldn't stop timers working in-process.
+    private func withFileLock<T>(_ body: () -> T) -> T {
+        guard let lock else { return body() }
+        return lock.withLock(body)
+    }
+
+    private func readUnlocked() -> [PendingTimer] {
         (try? Data(contentsOf: file))
             .flatMap { try? JSONDecoder().decode([PendingTimer].self, from: $0) } ?? []
     }
@@ -145,26 +162,31 @@ public actor TimerStore {
     }
 
     private func fire(_ timer: PendingTimer) async {
-        // Cancellation and firing race: only the one that gets here first wins.
-        guard pending.contains(where: { $0.id == timer.id }) else { return }
-        pending.removeAll { $0.id == timer.id }
         scheduled[timer.id] = nil
-        persist()
+        // Claiming it and removing it happen under one lock. Cancellation races
+        // firing, and two processes can be counting the same restored timer —
+        // whoever removes it speaks, and only once.
+        let claimed = mutate { stored -> Bool in
+            guard stored.contains(where: { $0.id == timer.id }) else { return false }
+            stored.removeAll { $0.id == timer.id }
+            return true
+        }
+        guard claimed else { return }
         await notify("Your \(DurationParser.spoken(timer.duration)) timer is up.")
     }
 
-    private func persist() {
+    private func write(_ timers: [PendingTimer]) {
         do {
             try FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            guard !pending.isEmpty else {
+            guard !timers.isEmpty else {
                 try? FileManager.default.removeItem(at: file)
                 return
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(pending).write(to: file, options: .atomic)
+            try encoder.encode(timers).write(to: file, options: .atomic)
         } catch {
             // A timer that can't be written still fires this session; it just
             // won't survive a restart. Losing the session's timer as well would
