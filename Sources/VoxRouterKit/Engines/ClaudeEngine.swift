@@ -20,8 +20,17 @@ public struct ClaudeEngine: Engine {
         self.effortOverride = effortOverride
     }
 
-    /// Aliases documented by `claude --help`. Full names also work.
-    public static let modelChoices = ["opus", "sonnet", "fable"]
+    /// Family aliases, each resolving to the latest model in that family.
+    ///
+    /// Read out of the CLI binary, not from `claude --help` — the help text
+    /// lists "'fable', 'opus', or 'sonnet'" as *examples*, and taking that as
+    /// the complete set silently dropped haiku from the picker.
+    ///
+    /// Version-pinned aliases (`opus-4-5`, `haiku45`, …) and full ids
+    /// (`claude-haiku-4-5-20251001`) are also accepted by the CLI; add any you
+    /// want to `engineModelChoices` rather than listing every historical model
+    /// here.
+    public static let modelChoices = ["opus", "sonnet", "haiku", "fable"]
 
     /// `claude --help` documents `--effort <level>` but not its values; these
     /// are the accepted levels, read out of the CLI bundle.

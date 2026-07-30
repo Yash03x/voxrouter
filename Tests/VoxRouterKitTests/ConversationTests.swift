@@ -303,6 +303,17 @@ struct EngineModelTests {
         #expect(args.last == "do the thing")
     }
 
+    /// Regression: the list was taken from `claude --help`, which gives
+    /// "'fable', 'opus', or 'sonnet'" as *examples* — so haiku was silently
+    /// missing from the picker. All four families are valid aliases.
+    @Test("Every Claude model family is offered")
+    func claudeOffersEveryFamily() {
+        let choices = ClaudeEngine.modelChoices
+        for family in ["opus", "sonnet", "haiku", "fable"] {
+            #expect(choices.contains(family), "\(family) should be selectable")
+        }
+    }
+
     @Test("Both engines report something rather than crashing")
     func enginesReportAModel() {
         // Values depend on the machine's config; the contract is only that
