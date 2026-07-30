@@ -74,6 +74,12 @@ final class AppModel: ObservableObject {
     @Published var quota: [ProviderUsage] = []
     @Published var selectedConversation: String?
     @Published var speechEnabled = true
+    /// Whether the "what you can say" list is expanded.
+    ///
+    /// Collapsed by default: it's for the first week, not every glance at the
+    /// menu. Lives here rather than in the view because `@State` needs the
+    /// SwiftUI macros, which don't ship with Command Line Tools.
+    @Published var showsCommands = false
     @Published var permissionDenied = false
     @Published var startupError: String?
     /// Set when the only thing missing is the on-device model, which the app can

@@ -31,6 +31,9 @@ struct MenuContent: View {
             ActivitySection(activity: model.activity)
             Divider()
 
+            VoiceCommandsSection(model: model)
+            Divider()
+
             Footer(model: model, openHistory: openHistory, quit: quit)
         }
     }
@@ -476,6 +479,72 @@ private struct ProjectPicker: View {
 }
 
 // MARK: - Footer
+
+/// What the assistant handles itself.
+///
+/// A voice interface has nowhere to show its own affordances, so without this
+/// the entire local command layer is invisible — you'd have to read the README
+/// to learn that "set a timer for five minutes" doesn't go to a coding agent.
+/// The phrases come from the commands themselves, so a command added later
+/// can't be silently missing from the list.
+private struct VoiceCommandsSection: View {
+    @ObservedObject var model: AppModel
+
+    /// Undo, project switching and "start over" are handled in the pipeline
+    /// ahead of the router — they hold confirmation state the router has no
+    /// notion of — so they aren't `LocalCommand`s and have to be named here.
+    private static let pipelinePhrases = ["undo that", "switch to <project>", "start over"]
+
+    private static var phrases: [String] {
+        LocalCommandRouter.standard.compactMap(\.examples.first) + pipelinePhrases
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                model.showsCommands.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: model.showsCommands ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text("What you can say")
+                        .font(.system(size: 11, weight: .medium))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if model.showsCommands {
+                // Bounded and scrolling rather than free-growing: the popover
+                // is a fixed 460pt, so a list that expands past it would push
+                // the footer — History, New Conversation, Quit — off the
+                // bottom. The activity log is capped the same way.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Self.phrases, id: \.self) { phrase in
+                            Text("“\(phrase)”")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        Text("Anything else goes to Claude or Codex.")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.leading, 12)
+                }
+                .frame(height: 118)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+}
 
 private struct Footer: View {
     @ObservedObject var model: AppModel

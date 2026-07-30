@@ -69,6 +69,41 @@ struct LocalCommandRoutingTests {
         }
     }
 
+    /// The menu's "what you can say" list is built from these, so a command
+    /// without one would simply be missing from the only place the app
+    /// advertises what it does.
+    @Test("Every command carries an example phrase, and the example works")
+    func examplesAreUsable() async {
+        // Commands that only claim an utterance when the thing it names exists
+        // — a shortcut called "Turn off the lights", an app called Safari. Their
+        // examples can't be asserted here without making the suite depend on
+        // what happens to be installed on the machine running it.
+        let environmentDependent: Set<String> = ["shortcut.run", "system.open"]
+
+        for command in LocalCommandRouter.standard {
+            let example = command.examples.first
+            #expect(example?.isEmpty == false, "\(command.id) has no example")
+
+            guard let example, !environmentDependent.contains(command.id) else { continue }
+            // The example must actually route to the command it illustrates.
+            #expect(command.matches(example) != nil, "\(command.id)'s example doesn't match it")
+        }
+    }
+
+    @Test("Command ids are unique, so the menu can key on them")
+    func idsAreUnique() {
+        let ids = LocalCommandRouter.standard.map(\.id)
+        #expect(Set(ids).count == ids.count)
+    }
+
+    /// The menu lists example phrases keyed by the phrase itself, so two
+    /// commands sharing one would collapse into a single row.
+    @Test("Example phrases are distinct")
+    func examplesAreDistinct() {
+        let examples = LocalCommandRouter.standard.compactMap(\.examples.first)
+        #expect(Set(examples).count == examples.count)
+    }
+
     @Test("Matching ignores case and trailing punctuation")
     func toleratesSpokenPunctuation() async {
         for phrasing in ["What can you do?", "what can you do", "WHAT CAN YOU DO!"] {
