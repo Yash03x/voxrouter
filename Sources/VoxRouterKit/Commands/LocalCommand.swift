@@ -56,12 +56,17 @@ public struct LocalContext: Sendable {
     /// has to still be there when the next one asks about it.
     public var timers: TimerStore
 
+    /// `timers` has no default on purpose. It used to default to the real
+    /// per-user store, and a test that omitted it planted an actual timer on
+    /// the machine running the suite — ten minutes after every test run, the
+    /// app announced a timer nobody had set. State that outlives the process
+    /// is too consequential to reach for silently; say which store you mean.
     public init(
         notesFile: URL,
         quota: @escaping @Sendable () async -> [ProviderUsage] = { [] },
         lastReply: @escaping @Sendable () async -> String? = { nil },
         notify: @escaping @Sendable (String) async -> Void = { _ in },
-        timers: TimerStore = .default
+        timers: TimerStore
     ) {
         self.notesFile = notesFile
         self.quota = quota
@@ -72,7 +77,8 @@ public struct LocalContext: Sendable {
 
     public static var `default`: LocalContext {
         LocalContext(
-            notesFile: Config.stateDirectory.appendingPathComponent("notes.md")
+            notesFile: Config.stateDirectory.appendingPathComponent("notes.md"),
+            timers: .default
         )
     }
 }

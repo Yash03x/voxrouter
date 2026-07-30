@@ -7,10 +7,18 @@ import Testing
 /// silently eating a real task.
 @Suite("Local command routing")
 struct LocalCommandRoutingTests {
+    /// Everything isolated — including the timer store, explicitly.
+    ///
+    /// `LocalContext` defaults `timers` to the real per-user file, and leaving
+    /// that default in place meant the "remind me in ten minutes" test planted
+    /// an actual timer on the machine running the suite: ten minutes after
+    /// every test run, the running app announced a timer nobody had set.
     private func context(notes: URL? = nil) -> LocalContext {
-        LocalContext(
-            notesFile: notes ?? FileManager.default.temporaryDirectory
-                .appendingPathComponent("voxrouter-test-\(UUID().uuidString).md")
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voxrouter-test-\(UUID().uuidString)")
+        return LocalContext(
+            notesFile: notes ?? scratch.appendingPathComponent("notes.md"),
+            timers: TimerStore(file: scratch.appendingPathComponent("timers.json"))
         )
     }
 

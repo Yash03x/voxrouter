@@ -702,7 +702,10 @@ struct VoxRouterCLI {
             lastReply: { nil },
             notify: { line in
                 FileHandle.standardOutput.write(Data(("  ⏰ " + line + "\n").utf8))
-            }
+            },
+            // The real store, deliberately: a timer set here must be visible to
+            // the running app, which adopts and fires it.
+            timers: .default
         )
 
         switch await LocalCommandRouter().handle(text, context: context) {
