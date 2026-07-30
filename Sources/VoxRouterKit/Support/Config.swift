@@ -115,11 +115,10 @@ public struct Config: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let fallback = Config.default
 
+        // `try?` flattens the optional, so a missing key and a malformed value
+        // both land here as nil — which is the behaviour we want either way.
         func value<T: Decodable>(_ key: CodingKeys, _ defaultValue: T) -> T {
-            guard let decoded = try? container.decodeIfPresent(T.self, forKey: key) else {
-                return defaultValue
-            }
-            return decoded ?? defaultValue
+            (try? container.decodeIfPresent(T.self, forKey: key)) ?? defaultValue
         }
 
         openUsageBaseURL = value(.openUsageBaseURL, fallback.openUsageBaseURL)

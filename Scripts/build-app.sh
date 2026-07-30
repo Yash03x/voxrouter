@@ -63,6 +63,36 @@ PLIST
 # microphone grant survives rebuilds. Ad-hoc builds cannot be notarized and will
 # be blocked by Gatekeeper on anyone else's Mac.
 ENTITLEMENTS="$ROOT/Scripts/VoxRouter.entitlements"
+
+# Pick a stable identity if one exists.
+#
+# This is what stops macOS asking for the microphone after every rebuild. An
+# ad-hoc signature's designated requirement is a raw cdhash:
+#
+#   designated => cdhash H"042935a1…"
+#
+# which changes with the binary, so TCC treats each build as a different app and
+# re-prompts. Any real certificate — even a free self-signed one — produces a
+# requirement based on the bundle id and the certificate instead, which survives
+# rebuilds. See Scripts/RELEASING.md.
+if [ -z "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
+  # Prefer Developer ID (also satisfies Gatekeeper), else a local cert.
+  # `|| true` throughout: under `set -euo pipefail` a grep that matches nothing
+  # returns 1 and takes the whole script down. Finding no certificate is the
+  # normal case, not an error.
+  identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  VOXROUTER_SIGN_IDENTITY="$(
+    printf '%s\n' "$identities" \
+      | grep -oE '"Developer ID Application: [^"]+"' | head -1 | tr -d '"' || true
+  )"
+  if [ -z "$VOXROUTER_SIGN_IDENTITY" ]; then
+    VOXROUTER_SIGN_IDENTITY="$(
+      printf '%s\n' "$identities" \
+        | grep -oE '"VoxRouter Local[^"]*"' | head -1 | tr -d '"' || true
+    )"
+  fi
+fi
+
 if [ -n "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
   echo "Signing for distribution as: $VOXROUTER_SIGN_IDENTITY"
   codesign --force --options runtime --timestamp \
@@ -70,8 +100,12 @@ if [ -n "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
     --sign "$VOXROUTER_SIGN_IDENTITY" "$APP"
   codesign --verify --strict --verbose=1 "$APP"
 else
-  echo "Signing (ad-hoc — local use only, Gatekeeper will block this elsewhere)…"
+  echo "Signing (ad-hoc)…"
   codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1
+  echo
+  echo "  Note: ad-hoc signing means macOS will ask for microphone access again"
+  echo "  after every rebuild. A free self-signed certificate fixes that —"
+  echo "  see Scripts/RELEASING.md → 'Stop the microphone prompt repeating'."
 fi
 
 echo "Built $APP"

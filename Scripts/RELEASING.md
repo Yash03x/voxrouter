@@ -1,5 +1,49 @@
 # Releasing
 
+## Stop the microphone prompt repeating
+
+If macOS asks for microphone access every time you rebuild, this is why.
+
+TCC identifies an app by its code signature. An ad-hoc signature's designated
+requirement is a raw hash of the binary:
+
+```bash
+codesign -d -r- build/VoxRouter.app
+# designated => cdhash H"042935a100268e9f58ce544ca71d383ac4760bcc"
+```
+
+Change one byte of code and that hash changes, so macOS concludes it has never
+seen this app before and asks again. Rebuild ten times, get asked ten times.
+
+**A free self-signed certificate fixes it.** Any real certificate produces a
+requirement based on the bundle id and the certificate rather than the binary
+hash, and the grant then survives rebuilds.
+
+Create one once, in Keychain Access:
+
+1. **Keychain Access** ▸ menu **Certificate Assistant** ▸ **Create a
+   Certificate…**
+2. Name: **`VoxRouter Local`** (the build script looks for this name)
+3. Identity Type: **Self Signed Root**
+4. Certificate Type: **Code Signing**
+5. Create, then Done.
+
+That's it — `./Scripts/build-app.sh` finds it automatically from then on, and the
+microphone prompt appears once and stays answered.
+
+To confirm it took:
+
+```bash
+codesign -d -r- build/VoxRouter.app
+# designated => identifier "dev.voxrouter.app" and certificate leaf = H"…"
+#                ^ stable across rebuilds, unlike a bare cdhash
+```
+
+A self-signed certificate does **not** satisfy Gatekeeper — it only fixes the
+repeated prompt on your own machine. For distributing to other people you need a
+Developer ID, below.
+
+
 ## Why the current release shows a warning
 
 `VoxRouter.app` is **ad-hoc signed**. macOS attaches a quarantine flag to
