@@ -76,6 +76,8 @@ struct VoxRouterCLI {
             await speak(config, arguments: Array(args.dropFirst()))
         case "undo":
             await undo(config, arguments: Array(args.dropFirst()))
+        case "keys":
+            await identifyKeys()
         case "run":
             let rest = Array(args.dropFirst())
             let task = rest.filter { !$0.hasPrefix("--") }.joined(separator: " ")
@@ -614,6 +616,57 @@ struct VoxRouterCLI {
         }
     }
 
+    /// Reports what hardware keys emit, so one can be bound by number rather
+    /// than guessed at. The mic/dictation key isn't in the documented
+    /// `NX_KEYTYPE_*` list, so observing it is the only reliable way to find it.
+    static func identifyKeys() async {
+        // Unbuffered: stdout is block-buffered to a pipe, so a session that
+        // gets killed would lose every line.
+        func say(_ text: String) {
+            FileHandle.standardOutput.write(Data((text + "\n").utf8))
+        }
+
+        guard SystemKeyMonitor.isPermitted else {
+            say("""
+            Capturing hardware keys needs Accessibility permission.
+
+            A prompt should appear now. If it doesn't, add your terminal in
+            System Settings ▸ Privacy & Security ▸ Accessibility, then run this
+            again.
+            """)
+            SystemKeyMonitor.requestPermission()
+            return
+        }
+
+        let monitor = SystemKeyMonitor()
+        do {
+            // Capture nothing: this only observes, so the keys still do their
+            // normal jobs while you're identifying them.
+            try monitor.start(capturing: []) { event in
+                switch event {
+                case .pressed(let keyCode):
+                    FileHandle.standardOutput.write(
+                        Data("  key \(keyCode) down\n".utf8)
+                    )
+                case .released(let keyCode):
+                    FileHandle.standardOutput.write(
+                        Data("  key \(keyCode) up   ← use this number\n".utf8)
+                    )
+                }
+            }
+        } catch {
+            FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+            exit(1)
+        }
+
+        say("""
+        Press the key you want to use — the microphone key, for instance.
+        Nothing is intercepted here, so keys still do their usual thing.
+        Ctrl-C when done.
+        """)
+        await Accessory.runEventLoop()
+    }
+
     static func printUsage() {
         print("""
         voxrouter — quota-aware dispatcher for Claude Code and Codex
@@ -635,6 +688,7 @@ struct VoxRouterCLI {
           voxrouter say <text>   speak text aloud (shows the narration filter)
           voxrouter say --voices            list installed English voices
           voxrouter undo [--yes] put the project back to before the last task
+          voxrouter keys         identify what a hardware key emits
         """)
     }
 }
