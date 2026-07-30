@@ -3,18 +3,12 @@ import Foundation
 /// Presentation names for model and effort values.
 ///
 /// The stored and passed-through values stay exactly as each CLI expects them —
-/// `--model sonnet`, `model_reasoning_effort="xhigh"` — because they're
+/// `--model sonnet-4-5`, `model_reasoning_effort="xhigh"` — because they're
 /// arguments, not labels. This is only what the user reads.
 public enum EngineDisplay {
-    /// Family aliases get proper capitalisation. Concrete model ids are left
-    /// alone: `claude-haiku-4-5-20251001` is an identifier, and title-casing it
-    /// would make it look like a typo.
-    private static let modelNames: [String: String] = [
-        "opus": "Opus",
-        "sonnet": "Sonnet",
-        "haiku": "Haiku",
-        "fable": "Fable",
-    ]
+    public static let defaultLabel = "Default"
+
+    private static let claudeFamilies = ["opus", "sonnet", "haiku", "fable"]
 
     private static let effortNames: [String: String] = [
         "minimal": "Minimal",
@@ -27,19 +21,65 @@ public enum EngineDisplay {
         "ultra": "Ultra",
     ]
 
-    public static let defaultLabel = "Default"
+    // MARK: - Models
 
+    /// Renders every alias the same way — `Family Version` — so a menu of
+    /// twenty doesn't mix "Opus" with "opus-4-8" and "sonnet37".
     public static func model(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return defaultLabel }
-        // What `EngineModel` returns when a CLI pins nothing itself.
+        // What `EngineModel` reports when a CLI pins nothing itself.
         if raw == "account default" { return defaultLabel }
-        if let known = modelNames[raw.lowercased()] { return known }
-        // OpenAI ids read badly lowercased but shouldn't be otherwise reshaped.
-        if raw.lowercased().hasPrefix("gpt") {
-            return "GPT" + raw.dropFirst(3)
-        }
+
+        let value = raw.lowercased()
+        if let claude = claudeAlias(value) { return claude }
+        if value.hasPrefix("gpt") { return openAIName(value) }
+        // Anything unrecognised — a full id like claude-haiku-4-5-20251001 —
+        // is shown verbatim: title-casing an identifier makes it look mistyped.
         return raw
     }
+
+    /// `opus` → Opus · `opus-4-8` → Opus 4.8 · `opus41` → Opus 4.1 ·
+    /// `opusplan` → Opus Plan
+    private static func claudeAlias(_ value: String) -> String? {
+        for family in claudeFamilies where value.hasPrefix(family) {
+            let name = family.capitalized
+            var suffix = String(value.dropFirst(family.count))
+
+            if suffix.isEmpty { return name }
+            // Claude Code's mixed mode: Opus plans, Sonnet executes.
+            if suffix == "plan" { return "\(name) Plan" }
+
+            suffix = suffix.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            guard !suffix.isEmpty else { return name }
+
+            // Dash form: "4-8" → 4.8, "5" → 5
+            if suffix.contains("-") {
+                let parts = suffix.split(separator: "-").map(String.init)
+                guard parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
+                return "\(name) \(parts.joined(separator: "."))"
+            }
+            // Compact form: "45" → 4.5, "5" → 5
+            guard suffix.allSatisfy(\.isNumber) else { return nil }
+            if suffix.count >= 2 {
+                let major = suffix.prefix(1)
+                let minor = suffix.dropFirst()
+                return "\(name) \(major).\(minor)"
+            }
+            return "\(name) \(suffix)"
+        }
+        return nil
+    }
+
+    /// `gpt-5.6` → GPT-5.6 · `gpt-5.1-codex-max` → GPT-5.1 Codex Max
+    private static func openAIName(_ value: String) -> String {
+        let parts = value.split(separator: "-").map(String.init)
+        guard let version = parts.dropFirst().first else { return value.uppercased() }
+        let head = "GPT-\(version)"
+        let rest = parts.dropFirst(2).map { $0.capitalized }
+        return ([head] + rest).joined(separator: " ")
+    }
+
+    // MARK: - Effort
 
     public static func effort(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return defaultLabel }

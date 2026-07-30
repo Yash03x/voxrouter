@@ -338,14 +338,63 @@ struct EngineModelTests {
         }
     }
 
-    @Test("Model and effort labels are presentable")
-    func displayNames() {
-        #expect(EngineDisplay.model("sonnet") == "Sonnet")
-        #expect(EngineDisplay.model("haiku") == "Haiku")
-        #expect(EngineDisplay.model("gpt-5.6-sol") == "GPT-5.6-sol")
+    /// Regression: only the four family aliases were mapped, so a menu of
+    /// twenty mixed "Opus" with "opus-4-8", "sonnet37" and "opusplan".
+    @Test("Every alias renders in the same style")
+    func displayNamesAreConsistent() {
+        // Family, dash-versioned, compact-versioned, and the mixed mode.
+        #expect(EngineDisplay.model("opus") == "Opus")
+        #expect(EngineDisplay.model("opus-5") == "Opus 5")
+        #expect(EngineDisplay.model("opus-4-8") == "Opus 4.8")
+        #expect(EngineDisplay.model("opus41") == "Opus 4.1")
+        #expect(EngineDisplay.model("opusplan") == "Opus Plan")
+        #expect(EngineDisplay.model("sonnet-4-5") == "Sonnet 4.5")
+        #expect(EngineDisplay.model("sonnet37") == "Sonnet 3.7")
+        #expect(EngineDisplay.model("haiku45") == "Haiku 4.5")
+        #expect(EngineDisplay.model("fable-5") == "Fable 5")
+    }
+
+    @Test("Nothing in the menu is left lowercase")
+    func everyChoiceIsPresentable() {
+        for choice in ClaudeEngine.modelChoices + CodexEngine.modelChoices {
+            let label = EngineDisplay.model(choice)
+            #expect(
+                label.first?.isUppercase == true,
+                "\(choice) renders as \"\(label)\" — inconsistent with the rest"
+            )
+        }
+    }
+
+    @Test("OpenAI names render consistently too")
+    func openAIDisplayNames() {
+        #expect(EngineDisplay.model("gpt-5.6") == "GPT-5.6")
+        #expect(EngineDisplay.model("gpt-5.6-sol") == "GPT-5.6 Sol")
+        #expect(EngineDisplay.model("gpt-5.1-codex-max") == "GPT-5.1 Codex Max")
+        #expect(EngineDisplay.model("gpt-4.1-nano") == "GPT-4.1 Nano")
+    }
+
+    @Test("Effort labels are presentable")
+    func effortDisplayNames() {
         #expect(EngineDisplay.effort("max") == "Max")
         // Spelled out — "Xhigh" reads like a mistake.
         #expect(EngineDisplay.effort("xhigh") == "Extra High")
+    }
+
+    /// Grouping by family is what lets the menu be one list rather than two
+    /// sections.
+    @Test("Choices are grouped by family")
+    func choicesGroupedByFamily() {
+        let families = ClaudeEngine.modelChoices.map { choice -> String in
+            for family in ["opus", "sonnet", "haiku", "fable"]
+            where choice.hasPrefix(family) { return family }
+            return choice
+        }
+        // Each family appears as one contiguous run.
+        var seen: [String] = []
+        for family in families where seen.last != family {
+            #expect(!seen.contains(family), "\(family) is split across the list")
+            seen.append(family)
+        }
     }
 
     @Test("Unset values read as Default, not as an internal string")
@@ -356,12 +405,13 @@ struct EngineModelTests {
         #expect(EngineDisplay.effort(nil) == "Default")
     }
 
-    /// Concrete ids are identifiers; title-casing one would make it look like a
-    /// typo, and it still has to match what the CLI accepts.
-    @Test("Concrete model ids are shown verbatim")
+    /// Full ids are identifiers; reformatting one would make it look like a
+    /// typo, and it still has to match what the CLI accepts. Aliases like
+    /// `opus-4-8` are *not* ids and do get formatted.
+    @Test("Full model ids are shown verbatim")
     func displayLeavesIdsAlone() {
         #expect(EngineDisplay.model("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001")
-        #expect(EngineDisplay.model("opus-4-8") == "opus-4-8")
+        #expect(EngineDisplay.model("claude-opus-4-1-20250805") == "claude-opus-4-1-20250805")
     }
 
     /// The label must never be mistaken for the value: `--model Sonnet` is not

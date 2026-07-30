@@ -31,17 +31,15 @@ public struct ClaudeEngine: Engine {
     ///
     /// `opusplan` is Claude Code's mixed mode: Opus for planning, Sonnet for
     /// execution.
+    /// Grouped by family, each family's unversioned alias first. One ordered
+    /// list rather than "latest" and "pinned" sections — splitting them made a
+    /// single menu look like two.
     public static let modelChoices = [
-        // Latest of each family.
-        "opus", "sonnet", "haiku", "fable", "opusplan",
-        // Pinned Opus versions, newest first.
-        "opus-5", "opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5", "opus41", "opus40",
-        // Pinned Sonnet versions.
-        "sonnet-5", "sonnet-4-6", "sonnet-4-5", "sonnet37", "sonnet35",
-        // Pinned Haiku versions.
-        "haiku45", "haiku35",
-        // Pinned Fable versions.
-        "fable-5",
+        "opus", "opus-5", "opus-4-8", "opus-4-7", "opus-4-6", "opus-4-5",
+        "opus41", "opus40", "opusplan",
+        "sonnet", "sonnet-5", "sonnet-4-6", "sonnet-4-5", "sonnet37", "sonnet35",
+        "haiku", "haiku45", "haiku35",
+        "fable", "fable-5",
     ]
 
     /// `claude --help` documents `--effort <level>` but not its values; these
