@@ -365,6 +365,22 @@ struct EngineModelTests {
         }
     }
 
+    /// A trailing 8-digit group is a release date, not a version component —
+    /// "Sonnet 4.5.20250929" reads like a broken version number.
+    @Test("Date-pinned aliases render the date as a date")
+    func datePinnedAliases() {
+        #expect(EngineDisplay.model("sonnet-4-5-20250929") == "Sonnet 4.5 (2025-09-29)")
+    }
+
+    /// Discovery finds `opus-4-5` and `opus45`, two spellings of one model.
+    /// Deduping on the display name is what keeps both out of the menu.
+    @Test("Alternate spellings collapse to one label")
+    func spellingsCollapse() {
+        #expect(EngineDisplay.model("opus45") == EngineDisplay.model("opus-4-5"))
+        #expect(EngineDisplay.model("sonnet46") == EngineDisplay.model("sonnet-4-6"))
+        #expect(EngineDisplay.model("fable5") == EngineDisplay.model("fable-5"))
+    }
+
     @Test("OpenAI names render consistently too")
     func openAIDisplayNames() {
         #expect(EngineDisplay.model("gpt-5.6") == "GPT-5.6")

@@ -60,9 +60,21 @@ public enum EngineDisplay {
 
             // Dash form: "4-8" → 4.8, "5" → 5
             if suffix.contains("-") {
-                let parts = suffix.split(separator: "-").map(String.init)
+                var parts = suffix.split(separator: "-").map(String.init)
                 guard parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
-                return "\(name) \(parts.joined(separator: "."))"
+
+                // A trailing 8-digit group is a release date, not a version
+                // component: `sonnet-4-5-20250929` should read
+                // "Sonnet 4.5 (2025-09-29)", not "Sonnet 4.5.20250929".
+                var dateSuffix = ""
+                if let last = parts.last, last.count == 8 {
+                    parts.removeLast()
+                    let year = last.prefix(4)
+                    let month = last.dropFirst(4).prefix(2)
+                    let day = last.suffix(2)
+                    dateSuffix = " (\(year)-\(month)-\(day))"
+                }
+                return "\(name) \(parts.joined(separator: "."))\(dateSuffix)"
             }
             // Compact form: "45" → 4.5, "5" → 5
             guard suffix.allSatisfy(\.isNumber) else { return nil }

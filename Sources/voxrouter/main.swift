@@ -60,6 +60,8 @@ struct VoxRouterCLI {
         switch command {
         case "quota":
             await showQuota(config)
+        case "catalog":
+            showCatalog(config)
         case "engines":
             showEngines(config)
         case "route":
@@ -136,6 +138,20 @@ struct VoxRouterCLI {
         } catch {
             FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
             exit(1)
+        }
+    }
+
+    /// Rescans the engine binaries for model names and reports the menu that
+    /// results. Slow on a cache miss (~3s per binary).
+    static func showCatalog(_ config: Config) {
+        EngineRegistry.refreshCatalog(config: config)
+        for engine in EngineRegistry.all(config: config) where engine.isInstalled {
+            let choices = EngineRegistry.modelChoices(for: engine.id, config: config)
+            print("\(engine.displayName) — \(choices.count) models")
+            for choice in choices {
+                print("  \(EngineDisplay.model(choice))")
+            }
+            print("")
         }
     }
 
@@ -689,6 +705,7 @@ struct VoxRouterCLI {
           voxrouter say --voices            list installed English voices
           voxrouter undo [--yes] put the project back to before the last task
           voxrouter keys         identify what a hardware key emits
+          voxrouter catalog      rescan the CLIs for models and list the menu
         """)
     }
 }

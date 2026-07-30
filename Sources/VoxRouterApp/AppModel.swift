@@ -363,6 +363,15 @@ final class AppModel: ObservableObject {
 
         setState(.idle)
         startRefreshLoop()
+
+        // Detached and low priority: a scan takes seconds per binary, and its
+        // only job is to notice models added by a CLI update. Results land in
+        // the picker on the next refresh.
+        let currentConfig = config
+        Task.detached(priority: .background) {
+            EngineRegistry.refreshCatalog(config: currentConfig)
+            await MainActor.run { self.objectWillChange.send() }
+        }
     }
 
     func stop() {

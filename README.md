@@ -686,6 +686,23 @@ next: the bare alias follows each new release, the pinned one never moves. Pick
 the tracking alias to always get the newest, or a pinned version when you want
 the same model in six months.
 
+### The list keeps itself current
+
+Neither CLI can enumerate its models — there is no `claude models` — so the
+names are read out of the binaries themselves. That runs in the background at
+launch and is cached against each binary's size and modification date, so a CLI
+update invalidates it exactly when it should. A cold scan is about 3s per
+245 MB binary; a cached read is ~10ms.
+
+Discovered names are *merged* with the built-in list, never substituted, so a
+failed scan costs nothing rather than emptying the picker. They're deduplicated
+by display name, because discovery finds both `opus-4-5` and `opus45` — two
+spellings of one model.
+
+```bash
+voxrouter catalog   # rescan now and print the resulting menu
+```
+
 Claude accepts the aliases `opus`, `sonnet`, `fable` or a full model name. Codex
 model names can't be enumerated from its CLI, so the picker offers whatever is in
 your `~/.codex/config.toml` plus anything you list in `engineModelChoices`.
