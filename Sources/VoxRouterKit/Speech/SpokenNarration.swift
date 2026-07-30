@@ -40,9 +40,13 @@ public enum SpokenNarration {
             return "Switching to \(spokenEngineName(to)); the other one ran out of quota."
 
         case .succeeded(_, let summary):
+            // Straight to the answer. "Done." in front of it is filler — the
+            // answer already tells you it finished, and hearing the same word
+            // before every reply gets old fast. Kept only when there's nothing
+            // to say, where silence would be ambiguous.
             guard let summary, !summary.isEmpty else { return "Done." }
             let spoken = speakable(summary)
-            return spoken.isEmpty ? "Done." : "Done. \(spoken)"
+            return spoken.isEmpty ? "Done." : spoken
 
         case .failed(let reason):
             return "That didn't work. \(speakable(reason, maxCharacters: 160))"

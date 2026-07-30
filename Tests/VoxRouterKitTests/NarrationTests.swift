@@ -157,10 +157,21 @@ struct NarrationSelectionTests {
         }
     }
 
+    /// "Done." before every reply is filler — the answer already says it
+    /// finished. Kept only when there's nothing else to say.
+    @Test("A summary is spoken on its own, with no preamble")
+    func summarySpokenDirectly() throws {
+        let line = try #require(SpokenNarration.line(
+            for: .succeeded(engine: "codex", summary: "The working tree is clean.")
+        ))
+        #expect(line == "The working tree is clean.")
+        #expect(!line.hasPrefix("Done"))
+    }
+
     @Test("Success with no summary still says something")
     func bareSuccess() throws {
         let line = try #require(SpokenNarration.line(for: .succeeded(engine: "codex", summary: nil)))
-        #expect(line == "Done.")
+        #expect(line == "Done.", "silence would be ambiguous here")
     }
 
     @Test("A success summary is run through the speech filter")
@@ -171,7 +182,7 @@ struct NarrationSelectionTests {
         )
         #expect(!line.contains("let x"))
         #expect(!line.contains("src/"))
-        #expect(line.contains("Fixed it"))
+        #expect(line.hasPrefix("Fixed it"), "no preamble before the answer")
     }
 
     @Test("A code-only summary degrades to 'Done.' rather than silence")
