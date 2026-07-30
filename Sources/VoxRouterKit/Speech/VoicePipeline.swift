@@ -130,27 +130,23 @@ public actor VoicePipeline {
 
         // A pending confirmation takes priority over everything: the next thing
         // said is an answer, not a new request.
-        if let pending = pendingUndo {
-            pendingUndo = nil
-            switch DestructiveIntent.interpretReply(transcript.text) {
-            case .affirm:
-                await performUndo(pending)
-            case .decline, .unclear:
-                emit("  cancelled")
-                await say("Left it as it is.")
-            }
-            return
-        }
-
         if let pending = pendingConfirmation {
             pendingConfirmation = nil
             switch DestructiveIntent.interpretReply(transcript.text) {
             case .affirm:
-                emit("  confirmed")
-                await dispatch(task: pending.task)
+                switch pending.action {
+                case .task(let task):
+                    emit("  confirmed")
+                    await dispatch(task: task)
+                case .undo(let point):
+                    await performUndo(point)
+                }
             case .decline, .unclear:
                 emit("  cancelled")
-                await say("Cancelled.")
+                await say(
+                    { if case .undo = pending.action { return "Left it as it is." }
+                      else { return "Cancelled." } }()
+                )
             }
             return
         }
@@ -192,7 +188,7 @@ public actor VoicePipeline {
         // engine acts immediately and irreversibly. This is the only gate
         // between a mishearing and something unrecoverable.
         if let risk = DestructiveIntent.assess(transcript.text) {
-            pendingConfirmation = Pending(task: transcript.text, at: Date())
+            pendingConfirmation = Pending(action: .task(transcript.text), at: Date())
             emit("  ⚠︎ needs confirmation: \(risk.reason)")
             await say(
                 "That would \(risk.reason). Hold the key and say yes to confirm."
@@ -203,18 +199,31 @@ public actor VoicePipeline {
         await dispatch(task: transcript.text)
     }
 
+    /// Something waiting on a spoken yes/no.
+    ///
+    /// One mechanism for both kinds, because having two was how the undo path
+    /// ended up with no expiry while the task path had one — the hazard is
+    /// identical and so is the handling.
+    enum PendingAction: Sendable {
+        case task(String)
+        case undo(RecoveryPoint)
+    }
+
     struct Pending: Sendable {
-        let task: String
+        let action: PendingAction
         let at: Date
     }
 
+    /// How long a confirmation stays answerable. A stale one is dangerous:
+    /// answering "yes" to something else minutes later must not run a forgotten
+    /// destructive task or reset a repository.
+    static let confirmationTimeout: TimeInterval = 60
+
     private var pendingConfirmation: Pending? {
         didSet {
-            // A stale confirmation is dangerous: answering "yes" to something
-            // else minutes later must not run a forgotten destructive task.
             guard pendingConfirmation != nil else { return }
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(Self.confirmationTimeout))
                 await self?.expireConfirmation()
             }
         }
@@ -222,12 +231,12 @@ public actor VoicePipeline {
 
     private func expireConfirmation() {
         guard let pending = pendingConfirmation,
-              Date().timeIntervalSince(pending.at) >= 60 else { return }
+              Date().timeIntervalSince(pending.at) >= Self.confirmationTimeout else { return }
         pendingConfirmation = nil
         emit("  (confirmation timed out)")
     }
 
-    /// Exposed for the UI: something is waiting on a yes/no.
+    /// Exposed for the UI, and for tests: something is waiting on a yes/no.
     public var awaitingConfirmation: Bool { pendingConfirmation != nil }
 
     /// Called when the project changes, so the app can update and re-point its
@@ -264,7 +273,7 @@ public actor VoicePipeline {
 
         // Undo throws away whatever the agent did, so it goes through the same
         // gate as any other destructive request.
-        pendingUndo = point
+        pendingConfirmation = Pending(action: .undo(point), at: Date())
         let changes = point.hadUncommittedChanges ? ", including your uncommitted changes" : ""
         emit("  ⚠︎ undo would reset to \(point.shortHead)\(changes) — “\(turn.task)”")
         await say(
@@ -272,8 +281,6 @@ public actor VoicePipeline {
             + "and reset to commit \(point.shortHead). Say yes to confirm."
         )
     }
-
-    private var pendingUndo: RecoveryPoint?
 
     private func performUndo(_ point: RecoveryPoint) async {
         do {

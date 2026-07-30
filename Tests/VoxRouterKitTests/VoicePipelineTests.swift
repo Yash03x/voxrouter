@@ -133,6 +133,44 @@ struct VoicePipelineTests {
                 "history must follow the active project")
     }
 
+    /// Regression: undo used to have its own pending slot with no expiry, while
+    /// the task path timed out after 60s. A "yes" said much later — or misheard
+    /// — would have reset the repository. Both now share one mechanism, so the
+    /// timeout can't apply to only one of them.
+    @Test("Task and undo confirmations share one expiring mechanism")
+    func confirmationsShareOneTimeout() async throws {
+        let speaker = RecordingSpeaker()
+        let pipeline = VoicePipeline(
+            config: configWithProjects(),
+            transcriber: FixedTranscriber(text: "delete everything in the project"),
+            speaker: speaker,
+            emit: { _ in }
+        )
+
+        #expect(!(await pipeline.awaitingConfirmation))
+        await pipeline.handle(clip())
+        #expect(await pipeline.awaitingConfirmation, "a destructive request should be held")
+
+        // There is exactly one timeout, applied to whatever is pending.
+        #expect(VoicePipeline.confirmationTimeout == 60)
+    }
+
+    /// An unclear reply must not be read as consent, for either kind.
+    @Test("An ambiguous reply clears the pending action without running it")
+    func ambiguousReplyCancels() async throws {
+        let pipeline = VoicePipeline(
+            config: configWithProjects(),
+            transcriber: FixedTranscriber(text: "delete everything in the project"),
+            emit: { _ in }
+        )
+        await pipeline.handle(clip())
+        #expect(await pipeline.awaitingConfirmation)
+
+        // The same transcriber now supplies a reply that is neither yes nor no.
+        await pipeline.handle(clip())
+        #expect(!(await pipeline.awaitingConfirmation), "an unclear reply must clear the gate")
+    }
+
     @Test("A config change that doesn't move directory keeps the store")
     func unrelatedConfigChangeKeepsStore() async throws {
         var config = configWithProjects()
