@@ -285,12 +285,43 @@ extension LocalCommand {
             guard let seconds = DurationParser.seconds(in: invocation.argument) else {
                 return "How long for?"
             }
-            let notify = context.notify
-            Task {
-                try? await Task.sleep(for: .seconds(seconds))
-                await notify("Your \(DurationParser.spoken(seconds)) timer is up.")
-            }
+            await context.timers.schedule(seconds: seconds)
             return "Timer set for \(DurationParser.spoken(seconds))."
+        }
+    )
+
+    public static let cancelTimer = LocalCommand(
+        id: "system.timer.cancel",
+        examples: ["cancel the timer", "cancel my timers"],
+        matches: exact([
+            "cancel the timer", "cancel timer", "cancel my timer",
+            "cancel my timers", "cancel the timers", "cancel all timers",
+            "stop the timer", "stop the timers",
+        ]),
+        perform: { _, context in
+            let cancelled = await context.timers.cancelAll()
+            guard !cancelled.isEmpty else { return "There's no timer running." }
+            guard cancelled.count > 1 else {
+                return "Cancelled your \(DurationParser.spoken(cancelled[0].duration)) timer."
+            }
+            return "Cancelled \(cancelled.count) timers."
+        }
+    )
+
+    public static let listTimers = LocalCommand(
+        id: "system.timer.list",
+        examples: ["what timers do I have", "how long is left"],
+        matches: exact([
+            "what timers do i have", "what timers are running", "my timers",
+            "how long is left", "how much time is left", "is there a timer running",
+        ]),
+        perform: { _, context in
+            let pending = await context.timers.timers()
+            guard let next = pending.first else { return "No timers running." }
+            let remaining = Int(next.dueAt.timeIntervalSinceNow.rounded())
+            let phrase = "\(DurationParser.spoken(max(1, remaining))) left"
+            guard pending.count > 1 else { return phrase.prefix(1).uppercased() + phrase.dropFirst() }
+            return "\(pending.count) timers, the next with \(phrase)."
         }
     )
 

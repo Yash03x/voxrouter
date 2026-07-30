@@ -52,17 +52,22 @@ public struct LocalContext: Sendable {
     public var lastReply: @Sendable () async -> String?
     /// Speaks something later, unprompted — used by timers when they fire.
     public var notify: @Sendable (String) async -> Void
+    /// Held by the caller, not made per-utterance: a timer set by one command
+    /// has to still be there when the next one asks about it.
+    public var timers: TimerStore
 
     public init(
         notesFile: URL,
         quota: @escaping @Sendable () async -> [ProviderUsage] = { [] },
         lastReply: @escaping @Sendable () async -> String? = { nil },
-        notify: @escaping @Sendable (String) async -> Void = { _ in }
+        notify: @escaping @Sendable (String) async -> Void = { _ in },
+        timers: TimerStore = .default
     ) {
         self.notesFile = notesFile
         self.quota = quota
         self.lastReply = lastReply
         self.notify = notify
+        self.timers = timers
     }
 
     public static var `default`: LocalContext {
@@ -106,6 +111,8 @@ public struct LocalCommandRouter: Sendable {
             .quotaReport,
             .runShortcut,
             .listShortcuts,
+            .cancelTimer,
+            .listTimers,
             .setTimer,
             .volume,
             .openApp,

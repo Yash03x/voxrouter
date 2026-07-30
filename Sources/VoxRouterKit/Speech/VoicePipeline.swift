@@ -65,6 +65,7 @@ public actor VoicePipeline {
     /// HTTP round trip before it can be routed.
     public func start() async {
         await monitor.start()
+        await restoreTimersIfNeeded()
     }
 
     /// Applies a settings change (e.g. a model switch) to subsequent dispatches
@@ -102,6 +103,27 @@ public actor VoicePipeline {
     /// Kept for "say that again".
     private var lastSpokenReply: String?
 
+    /// One store for the whole session — a timer set by one utterance has to
+    /// still be there when a later one cancels or asks about it.
+    private let timers = TimerStore.default
+    private var timersRestored = false
+
+    /// Reloads timers left over from a previous run, once per session.
+    ///
+    /// Called from `start()`, not from the first utterance: a pending timer has
+    /// to re-arm whether or not you ever speak again, which is the entire point
+    /// of persisting it. Constructing a pipeline stays side-effect-free, so the
+    /// CLI can build one just to inspect routing without announcing anything.
+    private func restoreTimersIfNeeded() async {
+        guard !timersRestored else { return }
+        timersRestored = true
+        await timers.setNotifier { [weak self] line in
+            await self?.say(line)
+            await self?.emitLine(line)
+        }
+        await timers.restore()
+    }
+
     private func localContext() -> LocalContext {
         LocalContext(
             notesFile: Config.stateDirectory.appendingPathComponent("notes.md"),
@@ -114,7 +136,8 @@ public actor VoicePipeline {
             notify: { [weak self] line in
                 await self?.say(line)
                 await self?.emitLine(line)
-            }
+            },
+            timers: timers
         )
     }
 

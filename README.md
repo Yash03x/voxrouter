@@ -230,7 +230,9 @@ knows. A local command layer runs before dispatch and handles what it can:
 | *"turn off the lights"* | Runs the shortcut of that name |
 | *"run water eject"* | Same, said explicitly |
 | *"what shortcuts do I have"* | Counts them, names a few |
-| *"set a timer for five minutes"* | Speaks up when it's done |
+| *"set a timer for five minutes"* | Speaks up when it's done — survives a restart |
+| *"what timers do I have"* | How long is left |
+| *"cancel the timer"* | Cancels every pending one |
 | *"volume up"*, *"mute"*, *"set volume to 30"* | Adjusts output |
 | *"open Safari"* | Launches it |
 | *"say that again"* | Repeats the last reply |
@@ -262,6 +264,29 @@ an engine costs a little quota, while a task captured as a note is lost silently
 Saying a shortcut's exact name runs it, but a sentence that merely *contains*
 one doesn't: *"log a film about the trip to Japan"* is not the `Log a film`
 shortcut.
+
+### Timers outlive the app
+
+They were a `Task` sleeping in memory, so quitting the app — or letting it be
+relaunched at login — dropped every pending timer without saying so. A timer
+you were *told* was set and that then silently never fires is worse than one
+that was refused, because you stop checking.
+
+Pending timers are written to `~/.local/state/voxrouter/timers.json` and
+re-armed at launch on their **remaining** time, so a restart doesn't extend
+them. One that came due while the app was closed is announced as missed rather
+than dropped — that's the whole point — unless it's more than an hour stale, at
+which point saying anything would just teach you to ignore it.
+
+Persisting them is also what makes *"cancel the timer"* necessary. A
+mistranscribed "eight hours" used to die with the app; now it would follow you
+across every restart.
+
+Both the app and the CLI write that file, so every read and write loads it
+first. Without that, a process holding nothing in memory replaced a file full of
+timers with the single one it had just made — setting a timer from the CLI while
+the app held two others destroyed both, and *"what timers do I have"* answered
+"none" with one sitting in the file.
 
 ### Never kill a running shortcut
 
