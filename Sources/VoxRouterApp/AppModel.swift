@@ -426,7 +426,11 @@ final class AppModel: ObservableObject {
 
     func toggleSpeech() {
         speechEnabled.toggle()
-        if !speechEnabled { speaker?.stop() }
+        // The pipeline decides what gets spoken, so the flag has to reach it —
+        // stopping the current utterance here silenced nothing after it.
+        let enabled = speechEnabled
+        Task { await pipeline?.setSpeechEnabled(enabled) }
+        if !enabled { speaker?.stop() }
     }
 
     private func startRefreshLoop() {

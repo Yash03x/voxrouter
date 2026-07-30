@@ -34,10 +34,16 @@ public actor VoicePipeline {
             workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
             timeout: config.conversationTimeout
         )
+        self.conversationDirectory = config.effectiveWorkingDirectory
     }
 
     /// Re-pointed when the project changes, so history follows the directory.
     private var conversation: ConversationStore
+    /// Which directory conversation memory is currently keyed to. Exposed so a
+    /// test can assert the store actually moved with the project.
+    private(set) var conversationDirectory: String
+
+    var currentConversationDirectory: String { conversationDirectory }
 
     /// Spoken phrases that clear the conversation. Without an explicit way to
     /// say "forget that", an unrelated new request inherits stale context.
@@ -64,7 +70,39 @@ public actor VoicePipeline {
     /// Applies a settings change (e.g. a model switch) to subsequent dispatches
     /// without restarting the app.
     public func updateConfig(_ newConfig: Config) {
+        let previousDirectory = config.effectiveWorkingDirectory
         config = newConfig
+
+        // Conversation memory is keyed by directory, so a project switch made
+        // from the menu (rather than by voice) has to re-point the store too.
+        // Without this the next task runs in the new project while reading and
+        // writing the old project's history.
+        if newConfig.effectiveWorkingDirectory != previousDirectory {
+            conversation = ConversationStore(
+                workingDirectory: URL(fileURLWithPath: newConfig.effectiveWorkingDirectory),
+                timeout: newConfig.conversationTimeout
+            )
+            conversationDirectory = newConfig.effectiveWorkingDirectory
+        }
+    }
+
+    /// Mutes or unmutes spoken replies for subsequent updates.
+    ///
+    /// Needs to live here rather than in the UI: the pipeline decides what gets
+    /// spoken, so a flag held only by the app silences the current utterance and
+    /// nothing after it.
+    public func setSpeechEnabled(_ enabled: Bool) {
+        speechMuted = !enabled
+        if !enabled { speaker.stop() }
+    }
+
+    private var speechMuted = false
+
+    /// Single point where speech is suppressed, so every call site honours the
+    /// mute without having to remember to check.
+    private func say(_ text: String) async {
+        guard !speechMuted else { return }
+        await speaker.speak(text)
     }
 
     /// Silences any in-progress speech. Call the moment the user starts talking
@@ -79,7 +117,7 @@ public actor VoicePipeline {
             transcript = try await transcriber.transcribe(samples: clip.samples)
         } catch {
             emit("  ✗ transcription failed: \(error.localizedDescription)")
-            await speaker.speak("Sorry, I couldn't make that out.")
+            await say("Sorry, I couldn't make that out.")
             return
         }
 
@@ -100,7 +138,7 @@ public actor VoicePipeline {
                 await dispatch(task: pending.task)
             case .decline, .unclear:
                 emit("  cancelled")
-                await speaker.speak("Cancelled.")
+                await say("Cancelled.")
             }
             return
         }
@@ -115,7 +153,7 @@ public actor VoicePipeline {
         if Self.isResetCommand(transcript.text) {
             await conversation.reset()
             emit("  (conversation cleared)")
-            await speaker.speak("Starting fresh.")
+            await say("Starting fresh.")
             return
         }
 
@@ -139,7 +177,7 @@ public actor VoicePipeline {
         if let risk = DestructiveIntent.assess(transcript.text) {
             pendingConfirmation = Pending(task: transcript.text, at: Date())
             emit("  ⚠︎ needs confirmation: \(risk.reason)")
-            await speaker.speak(
+            await say(
                 "That would \(risk.reason). Hold the key and say yes to confirm."
             )
             return
@@ -187,13 +225,13 @@ public actor VoicePipeline {
         guard let match = config.resolvedProjects.first(where: { $0.matches(spoken: spoken) }) else {
             let names = config.resolvedProjects.map(\.name).joined(separator: ", ")
             emit("  no project matching “\(spoken)” — have: \(names)")
-            await speaker.speak("I don't have a project called \(spoken).")
+            await say("I don't have a project called \(spoken).")
             return
         }
 
         guard match.exists else {
             emit("  \(match.name) no longer exists at \(match.path)")
-            await speaker.speak("\(match.name) isn't there any more.")
+            await say("\(match.name) isn't there any more.")
             return
         }
 
@@ -204,28 +242,31 @@ public actor VoicePipeline {
             workingDirectory: match.url,
             timeout: config.conversationTimeout
         )
+        conversationDirectory = match.path
         onProjectChange?(match)
 
         emit("  → project: \(match.name) (\(match.path))")
         if match.isAnywhere {
-            await speaker.speak("Working anywhere. Nothing is scoped now.")
+            await say("Working anywhere. Nothing is scoped now.")
         } else {
-            await speaker.speak("Switched to \(match.name).")
+            await say("Switched to \(match.name).")
         }
     }
 
     private func dispatch(task: String) async {
         let dispatcher = Dispatcher(config: config, router: router, conversation: conversation)
         let emit = self.emit
-        let speaker = self.speaker
 
         // Updates arrive from the dispatcher's own context while the run is in
         // flight, so speech is fired off rather than awaited — blocking the
         // dispatch loop on the audio device would stall the actual work.
+        //
+        // Routed back through the actor rather than capturing the speaker, so a
+        // mute toggled *during* a run takes effect for the rest of it.
         let verbosity = config.speechVerbosity
-        let narrate: @Sendable (DispatchUpdate) -> Void = { update in
+        let narrate: @Sendable (DispatchUpdate) -> Void = { [weak self] update in
             guard let line = SpokenNarration.line(for: update, verbosity: verbosity) else { return }
-            Task.detached { await speaker.speak(line) }
+            Task { await self?.say(line) }
         }
 
         do {
@@ -252,7 +293,7 @@ public actor VoicePipeline {
             emit("  journal: \(result.journalDirectory.path)")
         } catch {
             emit("  ✗ dispatch failed: \(error.localizedDescription)")
-            await speaker.speak("The task failed to start.")
+            await say("The task failed to start.")
         }
     }
 }
