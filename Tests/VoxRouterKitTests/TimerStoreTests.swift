@@ -197,6 +197,63 @@ struct TimerStoreTests {
         #expect(pending.map(\.duration) == [300, 900])
     }
 
+    /// The gap this closes: `voxrouter ask "set a timer"` said "timer set" and
+    /// nothing ever fired, because the CLI exits at once and the running app
+    /// only counted down what it had scheduled or restored itself.
+    @Test("A timer added by another process is picked up and fires")
+    func adoptsExternalTimers() async throws {
+        let file = scratchFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let spoken = Spy()
+        let app = TimerStore(file: file)
+        await app.setNotifier { await spoken.record($0) }
+        await app.restore()
+
+        // Another process sets one after the app already started.
+        _ = await TimerStore(file: file).schedule(seconds: 0)
+
+        await app.sweep()
+        let said = try #require(await spoken.waitForFirst())
+        #expect(said.contains("timer is up"))
+    }
+
+    @Test("Sweeping doesn't double-arm a timer already counting down")
+    func sweepIsIdempotent() async {
+        let file = scratchFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let spoken = Spy()
+        let store = TimerStore(file: file)
+        await store.setNotifier { await spoken.record($0) }
+        _ = await store.schedule(seconds: 0)
+        for _ in 0..<5 { await store.sweep() }
+
+        _ = await spoken.waitForFirst()
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(await spoken.count() == 1, "fired more than once")
+    }
+
+    /// A timer that should have fired hours ago — a long system sleep — is
+    /// dropped rather than announced late.
+    @Test("Sweeping drops timers stale beyond the grace window")
+    func sweepDropsStale() async {
+        let file = scratchFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let spoken = Spy()
+        _ = await TimerStore(file: file).schedule(seconds: 60, now: now)
+
+        let store = TimerStore(file: file)
+        await store.setNotifier { await spoken.record($0) }
+        await store.sweep(now: now.addingTimeInterval(86_400))
+
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(await spoken.count() == 0)
+        #expect(await store.timers(now: now.addingTimeInterval(86_400)).isEmpty)
+    }
+
     @Test("A missing or corrupt file reads as no timers, not a crash")
     func toleratesBadFile() async {
         let file = scratchFile()

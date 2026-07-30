@@ -95,7 +95,6 @@ public actor ConversationStore {
     private let timeout: TimeInterval
     private let maxTurns: Int
     private var archive = Archive(conversations: [])
-    private var loaded = false
     /// The maximum number of past conversations retained per directory.
     private let maxConversations: Int
 
@@ -194,40 +193,39 @@ public actor ConversationStore {
         recovery: RecoveryPoint? = nil,
         now: Date = Date()
     ) {
-        load()
+        mutating {
+            // A gap longer than the timeout starts a new conversation. The
+            // previous one stays in the archive rather than being replaced.
+            var isContinuation = false
+            if let last = archive.conversations.last?.turns.last,
+               now.timeIntervalSince(last.at) <= timeout,
+               !(archive.closedAt.map { $0 >= last.at } ?? false) {
+                isContinuation = true
+            }
+            if !isContinuation {
+                archive.conversations.append(Conversation(startedAt: now))
+            }
 
-        // A gap longer than the timeout starts a new conversation. The previous
-        // one stays in the archive rather than being replaced.
-        var isContinuation = false
-        if let last = archive.conversations.last?.turns.last,
-           now.timeIntervalSince(last.at) <= timeout,
-           !(archive.closedAt.map { $0 >= last.at } ?? false) {
-            isContinuation = true
-        }
-        if !isContinuation {
-            archive.conversations.append(Conversation(startedAt: now))
-        }
+            var current = archive.conversations[archive.conversations.count - 1]
+            current.turns.append(Turn(
+                at: now,
+                task: task,
+                engineId: engineId,
+                sessionId: sessionId,
+                runId: runId,
+                summary: summary,
+                succeeded: succeeded,
+                recovery: recovery
+            ))
+            if current.turns.count > maxTurns {
+                current.turns.removeFirst(current.turns.count - maxTurns)
+            }
+            archive.conversations[archive.conversations.count - 1] = current
 
-        var current = archive.conversations[archive.conversations.count - 1]
-        current.turns.append(Turn(
-            at: now,
-            task: task,
-            engineId: engineId,
-            sessionId: sessionId,
-            runId: runId,
-            summary: summary,
-            succeeded: succeeded,
-            recovery: recovery
-        ))
-        if current.turns.count > maxTurns {
-            current.turns.removeFirst(current.turns.count - maxTurns)
+            if archive.conversations.count > maxConversations {
+                archive.conversations.removeFirst(archive.conversations.count - maxConversations)
+            }
         }
-        archive.conversations[archive.conversations.count - 1] = current
-
-        if archive.conversations.count > maxConversations {
-            archive.conversations.removeFirst(archive.conversations.count - maxConversations)
-        }
-        persist()
     }
 
     /// Ends the current conversation — "start over", or an explicit `--new`.
@@ -235,9 +233,7 @@ public actor ConversationStore {
     /// Closes it rather than deleting it: the user asked to stop *continuing*,
     /// not to erase what happened. History keeps it.
     public func reset(now: Date = Date()) {
-        load()
-        archive.closedAt = now
-        persist()
+        mutating { archive.closedAt = now }
     }
 
     // MARK: - Persistence
@@ -251,18 +247,36 @@ public actor ConversationStore {
         return root.appendingPathComponent("\(name).json")
     }
 
+    /// Refreshes from disk before a read.
+    ///
+    /// Always re-reads rather than loading once. The app and the CLI share this
+    /// file, and holding a copy from process start meant a turn recorded by one
+    /// was invisible to the other — and then overwritten by it. The file is
+    /// small and this runs a few times per command.
     private func load() {
-        guard !loaded else { return }
-        loaded = true
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let stored = try? decoder.decode(Archive.self, from: data) {
-            archive = stored
+        FileLock.withLock(guarding: fileURL) { archive = readArchive() }
+    }
+
+    /// Read, change and write as one step nobody else can interleave with.
+    ///
+    /// The read has to be inside the lock, not just the write: the stale copy
+    /// is what loses the other process's turn.
+    private func mutating(_ body: () -> Void) {
+        FileLock.withLock(guarding: fileURL) {
+            archive = readArchive()
+            body()
+            writeArchive()
         }
     }
 
-    private func persist() {
+    private func readArchive() -> Archive {
+        guard let data = try? Data(contentsOf: fileURL) else { return Archive(conversations: []) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(Archive.self, from: data)) ?? Archive(conversations: [])
+    }
+
+    private func writeArchive() {
         do {
             try FileManager.default.createDirectory(
                 at: root, withIntermediateDirectories: true

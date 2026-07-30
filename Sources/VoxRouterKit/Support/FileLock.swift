@@ -35,10 +35,26 @@ public final class FileLock: @unchecked Sendable {
     /// takes longer than this, the process is wedged, and blocking the voice
     /// pipeline behind it would turn one stuck process into a stuck assistant.
     /// Losing an update in that case is the lesser failure, and it's logged.
-    public func withLock<T>(timeout: TimeInterval = 2, _ body: () -> T) -> T {
+    public func withLock<T>(timeout: TimeInterval = 2, _ body: () throws -> T) rethrows -> T {
         let acquired = acquire(before: Date().addingTimeInterval(timeout))
+        // Released even when `body` throws — a write that failed must not leave
+        // every other process waiting on a lock nobody will give back.
         defer { if acquired { flock(descriptor, LOCK_UN) } }
-        return body()
+        return try body()
+    }
+
+    /// Runs `body` holding the lock that guards `url`.
+    ///
+    /// A fresh lock per call on purpose: `flock` is held per open file
+    /// description, so sharing one descriptor between callers in this process
+    /// would let both inside at once — the second `LOCK_EX` on a descriptor
+    /// that already holds it succeeds immediately. Opening a file costs
+    /// microseconds; losing mutual exclusion costs data.
+    public static func withLock<T>(
+        guarding url: URL, timeout: TimeInterval = 2, _ body: () throws -> T
+    ) rethrows -> T {
+        guard let lock = FileLock(at: url.appendingPathExtension("lock")) else { return try body() }
+        return try lock.withLock(timeout: timeout, body)
     }
 
     private func acquire(before deadline: Date) -> Bool {

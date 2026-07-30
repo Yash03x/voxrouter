@@ -35,6 +35,7 @@ public actor TimerStore {
     /// exists; this is only what we're waiting on.
     private var scheduled: [UUID: Task<Void, Never>] = [:]
     private var notify: @Sendable (String) async -> Void = { _ in }
+    private var sweeper: Task<Void, Never>?
 
     public init(file: URL) {
         self.file = file
@@ -45,9 +46,57 @@ public actor TimerStore {
         TimerStore(file: Config.stateDirectory.appendingPathComponent("timers.json"))
     }
 
+    /// How often the file is re-read for timers this process isn't counting.
+    public static let sweepInterval: Duration = .seconds(5)
+
     /// Where firing timers speak. Set before ``restore(now:)``.
     public func setNotifier(_ notify: @escaping @Sendable (String) async -> Void) {
         self.notify = notify
+    }
+
+    /// Watches the file for timers set elsewhere.
+    ///
+    /// Without this, `voxrouter ask "set a timer for five minutes"` said "timer
+    /// set" and nothing ever fired: the CLI process exits immediately, and the
+    /// running app only counted down timers it had scheduled or restored at
+    /// launch. Told it was set, never went off — the same failure persistence
+    /// was meant to end.
+    ///
+    /// Only long-lived processes should call this. A one-shot CLI invocation
+    /// has nothing to sweep for.
+    public func startWatching(interval: Duration = sweepInterval) {
+        guard sweeper == nil else { return }
+        sweeper = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { return }
+                await self?.sweep()
+            }
+        }
+    }
+
+    public func stopWatching() {
+        sweeper?.cancel()
+        sweeper = nil
+    }
+
+    /// Adopts timers this process isn't already counting down.
+    ///
+    /// Also the safety net for a timer that should have fired and didn't — a
+    /// long system sleep, say. Anything overdue past the grace window is
+    /// dropped rather than announced late, for the same reason `restore` does.
+    func sweep(now: Date = Date()) {
+        var stale: [UUID] = []
+        for timer in read() where scheduled[timer.id] == nil {
+            let remaining = timer.dueAt.timeIntervalSince(now)
+            if remaining > 0 || -remaining <= Self.missedGrace {
+                arm(timer, after: remaining)
+            } else {
+                stale.append(timer.id)
+            }
+        }
+        guard !stale.isEmpty else { return }
+        mutate { $0.removeAll { stale.contains($0.id) } }
     }
 
     public func schedule(seconds: Int, now: Date = Date()) -> PendingTimer {

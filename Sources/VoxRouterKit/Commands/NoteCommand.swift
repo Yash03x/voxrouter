@@ -6,6 +6,14 @@ import Foundation
 /// permission needed, greppable, and it survives the app being uninstalled.
 /// A shortcut can move it into Notes for anyone who wants that.
 public enum QuickNote {
+    /// Appends a note.
+    ///
+    /// The read and the write are one locked step. This is a read-modify-write
+    /// on a file the app and the CLI both own, and without the lock it lost
+    /// notes exactly as the timer file did — measured at 5 of 12 surviving when
+    /// twelve notes were taken at once. A dropped note is the worst version of
+    /// this bug: the whole point of quick capture is that you stop holding the
+    /// thing in your head.
     public static func append(_ text: String, to file: URL, now: Date = Date()) throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -14,24 +22,28 @@ public enum QuickNote {
             at: file.deletingLastPathComponent(), withIntermediateDirectories: true
         )
 
-        let day = dayFormatter.string(from: now)
-        let time = timeFormatter.string(from: now)
-        var contents = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        try FileLock.withLock(guarding: file) {
+            let day = dayFormatter.string(from: now)
+            let time = timeFormatter.string(from: now)
+            var contents = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
 
-        // One heading per day, so a week of notes reads as a journal rather than
-        // an undifferentiated list.
-        let heading = "## \(day)"
-        if !contents.contains(heading) {
-            if !contents.isEmpty && !contents.hasSuffix("\n\n") { contents += "\n" }
-            contents += "\n\(heading)\n\n"
+            // One heading per day, so a week of notes reads as a journal rather
+            // than an undifferentiated list.
+            let heading = "## \(day)"
+            if !contents.contains(heading) {
+                if !contents.isEmpty && !contents.hasSuffix("\n\n") { contents += "\n" }
+                contents += "\n\(heading)\n\n"
+            }
+            contents += "- \(time) — \(trimmed)\n"
+
+            try Data(contents.utf8).write(to: file, options: .atomic)
         }
-        contents += "- \(time) — \(trimmed)\n"
-
-        try Data(contents.utf8).write(to: file, options: .atomic)
     }
 
     public static func recent(from file: URL, limit: Int = 3) -> [String] {
-        guard let contents = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        guard let contents = FileLock.withLock(guarding: file, {
+            try? String(contentsOf: file, encoding: .utf8)
+        }) else { return [] }
         return contents
             .split(separator: "\n")
             .filter { $0.hasPrefix("- ") }

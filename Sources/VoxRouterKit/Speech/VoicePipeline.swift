@@ -122,6 +122,10 @@ public actor VoicePipeline {
             await self?.emitLine(line)
         }
         await timers.restore()
+        // The CLI can add a timer while this process is running, and its own
+        // process exits before the timer is due — so somebody long-lived has to
+        // pick it up.
+        await timers.startWatching()
     }
 
     private func localContext() -> LocalContext {

@@ -553,3 +553,89 @@ struct ToolDescriptionTests {
         #expect(detail == "Bash: git status --short")
     }
 }
+
+/// The app and the CLI both record turns into the same per-directory file.
+@Suite("Conversation across processes")
+struct ConversationConcurrencyTests {
+    private func scratchRoot() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("voxrouter-conv-\(UUID().uuidString)")
+    }
+
+    private func store(root: URL) -> ConversationStore {
+        ConversationStore(
+            workingDirectory: URL(fileURLWithPath: "/tmp/project"), root: root
+        )
+    }
+
+    /// The store held its archive from process start and wrote it back whole,
+    /// so a turn recorded by the CLI was invisible to the running app — and
+    /// then overwritten by it.
+    @Test("A turn recorded by another process isn't overwritten")
+    func keepsOtherProcessesTurns() async {
+        let root = scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let app = store(root: root)
+        await app.record(
+            task: "first", engineId: "claude", sessionId: "a", runId: "1",
+            summary: nil, succeeded: true, now: now
+        )
+
+        // A separate process, as `voxrouter run` would be.
+        let cli = store(root: root)
+        await cli.record(
+            task: "second", engineId: "claude", sessionId: "b", runId: "2",
+            summary: nil, succeeded: true, now: now.addingTimeInterval(10)
+        )
+
+        // The app records again from what was, before the fix, a stale copy.
+        await app.record(
+            task: "third", engineId: "claude", sessionId: "c", runId: "3",
+            summary: nil, succeeded: true, now: now.addingTimeInterval(20)
+        )
+
+        let tasks = await store(root: root).activeTurns(now: now.addingTimeInterval(21)).map(\.task)
+        #expect(tasks == ["first", "second", "third"])
+    }
+
+    @Test("A read sees what another process just wrote")
+    func readsAreFresh() async {
+        let root = scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let reader = store(root: root)
+        #expect(await reader.activeTurns(now: now).isEmpty)
+
+        await store(root: root).record(
+            task: "written elsewhere", engineId: "codex", sessionId: nil, runId: "1",
+            summary: nil, succeeded: true, now: now
+        )
+
+        #expect(await reader.activeTurns(now: now).count == 1)
+    }
+
+    @Test("Concurrent writers all land")
+    func concurrentWritersAllLand() async {
+        let root = scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<10 {
+                group.addTask { [self] in
+                    await store(root: root).record(
+                        task: "task \(index)", engineId: "claude", sessionId: nil,
+                        runId: "\(index)", summary: nil, succeeded: true,
+                        now: now.addingTimeInterval(Double(index))
+                    )
+                }
+            }
+        }
+
+        let turns = await store(root: root).activeTurns(now: now.addingTimeInterval(11))
+        #expect(turns.count == 10, "\(10 - turns.count) turns were lost")
+    }
+}
