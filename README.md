@@ -535,45 +535,34 @@ stops. Being talked over is the fastest way to make an assistant annoying.
 
 ### Download
 
-Grab the latest `VoxRouter-*-macos-arm64.zip` from
-[Releases](https://github.com/Yash03x/voxrouter/releases), unzip, and move
-`VoxRouter.app` to `/Applications`.
-
-**It is ad-hoc signed, not notarized**, so Gatekeeper will refuse it on first
-launch ("Apple could not verify…"). That's expected for an unsigned open-source
-app — a warning-free download needs a paid Apple Developer ID, see
-[Scripts/RELEASING.md](Scripts/RELEASING.md). To open it anyway:
-
 ```bash
-xattr -dr com.apple.quarantine /Applications/VoxRouter.app
+curl -L https://github.com/Yash03x/voxrouter/releases/latest/download/VoxRouter-macos-arm64.zip -o /tmp/vox.zip \
+  && ditto -x -k /tmp/vox.zip /Applications \
+  && xattr -dr com.apple.quarantine /Applications/VoxRouter.app \
+  && open /Applications/VoxRouter.app
 ```
 
-Or right-click the app ▸ Open ▸ Open. If you'd rather not trust a binary from
-the internet — reasonable — build from source below; it takes about 30 seconds.
+That downloads it, installs it, clears the quarantine flag, and launches it.
 
-Apple Silicon only.
+**Why the `xattr` line is needed.** The app is signed, but with a self-signed
+certificate rather than an Apple Developer ID, so Gatekeeper refuses anything
+downloaded from the internet. Removing the quarantine flag is the standard
+workaround. If you'd rather not do that for a tool that runs shell commands —
+entirely reasonable — [build from source](#build-from-source) instead; locally
+built apps are never quarantined and it takes about 30 seconds.
 
-**On first launch** it will ask for the microphone, offer a one-click download
-for the on-device speech model, and ask you to choose a project — the folder
-tasks should run in. You can add more later and switch between them by voice.
+Getting rid of the warning properly requires a paid Apple Developer ID
+($99/year); the tooling for it is already in place, see
+[Scripts/RELEASING.md](Scripts/RELEASING.md).
 
-If anything looks wrong, this reports each precondition separately:
+### What you need
 
-```bash
-/Applications/VoxRouter.app/Contents/MacOS/VoxRouter --diagnose
-```
-
-```
-project          voxrouter — /Users/you/code/voxrouter
-engine claude    /opt/homebrew/bin/claude
-engine codex     /Applications/ChatGPT.app/Contents/Resources/codex
-openusage        reachable — Codex, Claude
-speech model     en_US — installed
-```
-
-It names what's missing rather than listing values you'd have to know how to
-read: a project that doesn't exist, a folder that isn't a git repo (which codex
-refuses), no engine installed, an unreachable quota dashboard.
+| | |
+|---|---|
+| **Apple Silicon Mac** | the release is arm64 only |
+| **macOS 26+** | for on-device speech |
+| **Claude Code and/or Codex** | installed *and logged in* — one is enough |
+| **[OpenUsage](https://www.openusage.ai)** | optional; without it routing falls back to a fixed preference order instead of live quota |
 
 ### Build from source
 

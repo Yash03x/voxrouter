@@ -12,9 +12,23 @@ VERSION="${1:-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/build/VoxRouter.app"
 DIST="$ROOT/build/dist"
-ARCHIVE="$DIST/VoxRouter-$VERSION-macos-arm64.zip"
+# Version-free name on purpose: the README links to
+# releases/latest/download/<name>, which only resolves if the asset name is
+# stable across releases.
+ARCHIVE="$DIST/VoxRouter-macos-arm64.zip"
 
 "$ROOT/Scripts/build-app.sh" release
+
+# A locally-created self-signed certificate is fine for stopping the microphone
+# prompt on your own machine, but it means nothing to anyone downloading this —
+# Gatekeeper rejects it exactly as it rejects an ad-hoc signature. Say so, or a
+# release looks signed when it isn't usefully signed.
+if codesign -dvvv "$APP" 2>&1 | grep -q 'Authority=VoxRouter Local'; then
+  echo
+  echo "  NOTE: signed with the local development certificate."
+  echo "  Downloaders will still see a Gatekeeper warning. Only a Developer ID"
+  echo "  removes it — see Scripts/RELEASING.md."
+fi
 
 mkdir -p "$DIST"
 rm -f "$ARCHIVE"
