@@ -52,11 +52,27 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature: gives TCC a stable identity for this bundle, so the
-# microphone grant survives relaunches. Re-running this script keeps the same
-# identity as long as the bundle id doesn't change.
-echo "Signing (ad-hoc)…"
-codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1
+# Signing.
+#
+# With VOXROUTER_SIGN_IDENTITY set to a "Developer ID Application: …" identity,
+# signs for distribution: hardened runtime (required by notarization) plus the
+# microphone entitlement (required *because of* the hardened runtime — without
+# it the app captures silence).
+#
+# Otherwise ad-hoc, which is fine locally: it gives TCC a stable identity so the
+# microphone grant survives rebuilds. Ad-hoc builds cannot be notarized and will
+# be blocked by Gatekeeper on anyone else's Mac.
+ENTITLEMENTS="$ROOT/Scripts/VoxRouter.entitlements"
+if [ -n "${VOXROUTER_SIGN_IDENTITY:-}" ]; then
+  echo "Signing for distribution as: $VOXROUTER_SIGN_IDENTITY"
+  codesign --force --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$VOXROUTER_SIGN_IDENTITY" "$APP"
+  codesign --verify --strict --verbose=1 "$APP"
+else
+  echo "Signing (ad-hoc — local use only, Gatekeeper will block this elsewhere)…"
+  codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1
+fi
 
 echo "Built $APP"
 echo

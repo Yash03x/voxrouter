@@ -439,7 +439,8 @@ Grab the latest `VoxRouter-*-macos-arm64.zip` from
 
 **It is ad-hoc signed, not notarized**, so Gatekeeper will refuse it on first
 launch ("Apple could not verify…"). That's expected for an unsigned open-source
-app — proper notarization needs a paid Apple Developer ID. To open it anyway:
+app — a warning-free download needs a paid Apple Developer ID, see
+[Scripts/RELEASING.md](Scripts/RELEASING.md). To open it anyway:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/VoxRouter.app

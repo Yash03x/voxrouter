@@ -20,6 +20,38 @@ mkdir -p "$DIST"
 rm -f "$ARCHIVE"
 ditto -c -k --keepParent --sequesterRsrc "$APP" "$ARCHIVE"
 
+# Notarization, when credentials are configured.
+#
+# VOXROUTER_NOTARY_PROFILE names a keychain profile you create once with:
+#   xcrun notarytool store-credentials <name> --apple-id … --team-id …
+# Credentials live in your keychain and never appear here or in the repo.
+#
+# The order matters: notarize the archive, staple the ticket to the .app, then
+# re-archive. Stapling embeds the ticket so the app validates offline; skip it
+# and a machine without a network connection still shows a warning.
+if [ -n "${VOXROUTER_NOTARY_PROFILE:-}" ]; then
+  echo
+  echo "Notarizing (this usually takes a few minutes)…"
+  xcrun notarytool submit "$ARCHIVE" \
+    --keychain-profile "$VOXROUTER_NOTARY_PROFILE" --wait
+
+  echo "Stapling…"
+  xcrun stapler staple "$APP"
+
+  rm -f "$ARCHIVE"
+  ditto -c -k --keepParent --sequesterRsrc "$APP" "$ARCHIVE"
+
+  echo "Verifying as Gatekeeper would…"
+  spctl -a -vvv -t install "$APP" || {
+    echo "error: Gatekeeper still rejects the app" >&2
+    exit 1
+  }
+else
+  echo
+  echo "NOTE: not notarized (VOXROUTER_NOTARY_PROFILE unset)."
+  echo "      Gatekeeper will block this on other people's Macs."
+fi
+
 echo
 echo "Archive: $ARCHIVE"
 echo "Size:    $(du -h "$ARCHIVE" | cut -f1)"
