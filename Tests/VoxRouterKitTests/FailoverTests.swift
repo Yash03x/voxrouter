@@ -118,7 +118,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 10, codex: 20),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         let updates = UpdateLog()
@@ -147,7 +148,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 10, codex: 20),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         _ = try await dispatcher.run(task: "refactor the config loader") { _ in }
@@ -179,7 +181,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 10, codex: 20),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         let updates = UpdateLog()
@@ -207,7 +210,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 5, codex: 50),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         let updates = UpdateLog()
@@ -229,7 +233,8 @@ struct FailoverTests {
                 config: testConfig(),
                 router: try await makeRouter(claude: 5, codex: 50),
                 engines: [claude, codex],
-                launcher: recorder.launcher()
+                launcher: recorder.launcher(),
+                journalRoot: try scratchRoot()
             )
             let result = try await dispatcher.run(task: "t") { _ in }
             #expect(result.engineHistory == ["claude", "codex"], "failed for: \(phrasing)")
@@ -248,7 +253,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 5, codex: 50),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
         let result = try await dispatcher.run(task: "build") { _ in }
         #expect(result.engineHistory == ["claude"])
@@ -267,7 +273,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 10, codex: 20),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         let updates = UpdateLog()
@@ -288,7 +295,8 @@ struct FailoverTests {
             router: try await makeRouter(claude: 10, codex: 20),
             engines: [claude, codex],
             launcher: recorder.launcher(),
-            maxAttempts: 3
+            maxAttempts: 3,
+            journalRoot: try scratchRoot()
         )
 
         _ = try await dispatcher.run(task: "spin") { _ in }
@@ -305,7 +313,8 @@ struct FailoverTests {
             config: testConfig(),
             router: try await makeRouter(claude: 5, codex: 5),
             engines: [claude, codex],
-            launcher: recorder.launcher()
+            launcher: recorder.launcher(),
+            journalRoot: try scratchRoot()
         )
 
         let updates = UpdateLog()

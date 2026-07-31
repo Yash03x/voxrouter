@@ -39,6 +39,7 @@ quota, and at least one of Claude Code / Codex installed.
 | Projects + Anywhere scope | **done** — see [Projects](#projects) |
 | Undo / recovery point | **done** — see [Undo](#undo) |
 | Local commands, Shortcuts, notes, timers | **done** — see [Things it answers itself](#things-it-answers-itself) |
+| Fast answers (local model via Ollama) | **done** — see [Quick answers](#quick-answers) |
 | Wake word | **not built** — see [Roadmap](#roadmap) |
 | Proactive notifications | **not built** — see [Roadmap](#roadmap) |
 
@@ -238,7 +239,90 @@ knows. A local command layer runs before dispatch and handles what it can:
 | *"say that again"* | Repeats the last reply |
 | *"what can you do"* | Lists the above |
 
-Anything else goes to an engine, unchanged.
+Anything else goes to an engine, unchanged — unless it reads as a quick general
+question, which gets one more local stop first:
+
+### Quick answers
+
+*"What's fifteen percent of 240"* deserves an agent even less than *"what's my
+quota"* — but unlike quota, the app can't answer it from its own state. So
+before dispatch, quick general questions get one try at a small local model:
+about a second instead of twenty, no quota spent, and the question never
+leaves the Mac — when it's answered here, nothing was sent anywhere.
+
+The backend is a local [Ollama](https://ollama.com) server:
+
+```bash
+brew install ollama
+ollama pull qwen2.5:7b
+```
+
+Without it, nothing breaks and nothing needs configuring: the tier notices
+the absent server in milliseconds and silently skips straight to the
+engines, so every utterance routes exactly as before. The backend sits
+behind a small `QuickAnswerer` seam, so another backend — an API, a
+different local runtime — is one new conformance in one file.
+
+The design starts from the fact that the two possible misroutes are not equal.
+A question sent to an engine is answered slowly — annoying, nothing lost. A
+real task answered by the small model is work that silently never happens: you
+hear a confident sentence and your request is gone. So the tier never tries to
+recognise questions; it hunts for *task evidence*, and every ambiguity resolves
+toward the engine. Two gates enforce that, in order:
+
+1. **Task-evidence heuristics.** A coding verb aimed at a code noun ("fix the
+   parser"), a trouble verb next to one ("why is the build failing" is a
+   debugging task in question's clothing), code-shaped tokens (`main.swift`,
+   `user_id`, camelCase), backticks, an utterance long enough to be a brief
+   rather than a question, or an imperative said mid-coding-conversation — any
+   single signal routes to the engine. Only a clean miss on all of them lets
+   the model try.
+2. **The model's own hand-off.** Every reply is generated against a fixed
+   schema — `{thought, can_answer, answer}`, in that order — and the model is
+   told to hand off (`can_answer=false`) whenever the request wants something
+   done on the computer, needs live information or personal data, or is
+   something it doesn't know. Hand-offs, timeouts, refusals and
+   unavailability all fall through to the normal engine path unchanged, and
+   nothing thrown inside the tier can ever reach speech.
+
+The schema replaced an earlier design where the model was told to reply with
+the bare token `ESCALATE`, because that contract measured as fiction: a 3B
+model ignored it *100% of the time*. Structured output flips the compliance
+question — the model physically can't produce a reply without a verdict —
+and putting `thought` before `can_answer` is what makes the verdict honest.
+Forced to judge first, small models revert to overconfident yes-answers;
+forced to reason first, they hand off reliably. Measured, not assumed.
+
+The Ollama default model came out of benchmarking that same safety set:
+
+| model | result |
+| --- | --- |
+| llama3.2:3b | 1 unsafe · 1 wrong, and nondeterministic on arithmetic; ignored the token contract outright |
+| gemma3:4b | fabricated live data (weather, scores) three times — disqualifying |
+| qwen3:4b | clean, but twice as slow |
+| **qwen2.5:7b** | **0 unsafe · 0 over-escalations · 0 wrong — 0.81 s median warm, 1.07 s max** |
+
+The catch with local models is the cold start: qwen2.5:7b takes 11.4 s to
+load against 0.81 s to answer. So every request pins the model resident for
+30 minutes (`keep_alive`), and the app prewarms it at launch — the load
+happens once per session, not inside your first question. Residency costs
+about 4.7 GB of RAM; if that's too dear, point `ollamaModel` at something
+smaller — knowing the table above says the small ones lie.
+
+The knobs, in the config:
+
+```json
+"fastAnswers": false,                        // kill the tier outright
+"ollamaModel": "qwen2.5:7b",                 // which model to ask for
+"ollamaBaseURL": "http://127.0.0.1:11434"    // where Ollama listens
+```
+
+Check what the tier would do with a phrase, without speaking:
+
+```bash
+voxrouter ask "what's fifteen percent of 240"      # → would try the fast tier first
+voxrouter ask "run the tests and fix what breaks"  # → engine: coding verb 'run' with code noun 'tests'
+```
 
 ### The Shortcuts bridge is the whole integration story
 

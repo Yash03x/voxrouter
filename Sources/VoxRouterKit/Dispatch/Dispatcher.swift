@@ -71,13 +71,20 @@ public actor Dispatcher {
     /// Nil disables conversation memory (each task stands alone).
     private let conversation: ConversationStore?
 
+    /// Where run journals are written. Injectable for the same reason as
+    /// `launcher`: tests dispatch scripted runs by the dozen, and with the
+    /// root fixed to the real state directory every suite execution silently
+    /// appended junk journals to the user's actual run history.
+    private let journalRoot: URL
+
     public init(
         config: Config,
         router: EngineRouter,
         engines: [any Engine]? = nil,
         launcher: EngineLauncher = .process,
         conversation: ConversationStore? = nil,
-        maxAttempts: Int = 4
+        maxAttempts: Int = 4,
+        journalRoot: URL = Config.stateDirectory
     ) {
         self.config = config
         self.router = router
@@ -85,6 +92,7 @@ public actor Dispatcher {
         self.launcher = launcher
         self.conversation = conversation
         self.maxAttempts = maxAttempts
+        self.journalRoot = journalRoot
     }
 
     public func run(
@@ -92,7 +100,9 @@ public actor Dispatcher {
         onUpdate: @escaping @Sendable (DispatchUpdate) -> Void
     ) async throws -> DispatchResult {
         let workingDirectory = URL(fileURLWithPath: config.effectiveWorkingDirectory)
-        let journal = try RunJournal(task: task, workingDirectory: workingDirectory)
+        let journal = try RunJournal(
+            task: task, workingDirectory: workingDirectory, root: journalRoot
+        )
 
         // Captured before the engine touches anything. With approval prompts
         // disabled a misheard instruction changes files immediately, so the

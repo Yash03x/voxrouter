@@ -35,6 +35,24 @@ public struct Config: Codable, Sendable {
     /// picked the task up and when it switches.
     public var speechVerbosity: SpokenNarration.Verbosity
     public var speechRate: Int?
+    /// Whether quick general questions may be answered by the on-device model
+    /// before an engine is considered. Safe to leave on: the tier's gate sends
+    /// every ambiguity to the engines, so turning this off only buys slower
+    /// answers, not safer ones. Off exists for machines where the model's
+    /// availability check itself misbehaves.
+    public var fastAnswers: Bool
+    /// Which model the fast tier's Ollama backend asks for. The default is
+    /// the only candidate that measured clean — qwen2.5:7b went 12/12 on the
+    /// safety set (0 unsafe, 0 over-escalation, 0 wrong) at 0.81 s warm
+    /// median, where llama3.2:3b answered unsafely, gemma3:4b fabricated
+    /// live data, and qwen3:4b was clean but twice as slow. A knob because
+    /// it's the user's disk and RAM (~4.7 GB resident) — but a smaller model
+    /// here trades directly against the "never lose work" guarantee.
+    public var ollamaModel: String
+    /// Where the Ollama server listens. A knob for non-default ports or a
+    /// server elsewhere on the LAN; the localhost default keeps questions on
+    /// the machine, which is the tier's promise.
+    public var ollamaBaseURL: URL
 
     /// Explicit, because declaring `init(from:)` suppresses the synthesised
     /// memberwise initialiser.
@@ -54,7 +72,10 @@ public struct Config: Codable, Sendable {
         wakePhrases: [String],
         voice: String?,
         speechVerbosity: SpokenNarration.Verbosity,
-        speechRate: Int?
+        speechRate: Int?,
+        fastAnswers: Bool,
+        ollamaModel: String,
+        ollamaBaseURL: URL
     ) {
         self.openUsageBaseURL = openUsageBaseURL
         self.quotaRefreshInterval = quotaRefreshInterval
@@ -72,6 +93,9 @@ public struct Config: Codable, Sendable {
         self.voice = voice
         self.speechVerbosity = speechVerbosity
         self.speechRate = speechRate
+        self.fastAnswers = fastAnswers
+        self.ollamaModel = ollamaModel
+        self.ollamaBaseURL = ollamaBaseURL
     }
 
     public static let `default` = Config(
@@ -100,7 +124,10 @@ public struct Config: Codable, Sendable {
         wakePhrases: ["vox router", "okay vox"],
         voice: nil,
         speechVerbosity: .minimal,
-        speechRate: nil
+        speechRate: nil,
+        fastAnswers: true,
+        ollamaModel: "qwen2.5:7b",
+        ollamaBaseURL: URL(string: "http://127.0.0.1:11434")!
     )
 
     public static var configURL: URL {
@@ -149,6 +176,9 @@ public struct Config: Codable, Sendable {
         voice = try? container.decodeIfPresent(String.self, forKey: .voice)
         speechVerbosity = value(.speechVerbosity, fallback.speechVerbosity)
         speechRate = try? container.decodeIfPresent(Int.self, forKey: .speechRate)
+        fastAnswers = value(.fastAnswers, fallback.fastAnswers)
+        ollamaModel = value(.ollamaModel, fallback.ollamaModel)
+        ollamaBaseURL = value(.ollamaBaseURL, fallback.ollamaBaseURL)
     }
 
     /// Loads config, falling back to defaults. A malformed config must not stop

@@ -12,6 +12,14 @@ public actor VoicePipeline {
     private let monitor: QuotaMonitor
     private let router: EngineRouter
     private let emit: @Sendable (String) -> Void
+    /// The fast-answer tier: a local Ollama server behind the
+    /// `QuickAnswerer` seam. Built once here rather than per utterance, but
+    /// nothing about availability is baked in: whether the backend is
+    /// actually *there* is its own per-question business — absence comes
+    /// back as a fast `.unavailable` the chain skips past, so stopping
+    /// Ollama mid-session routes the next question correctly with no state
+    /// held here to go stale.
+    private var quickAnswerer: any QuickAnswerer
 
     public init(
         config: Config,
@@ -27,6 +35,7 @@ public actor VoicePipeline {
         self.speaker = speaker
         self.dryRun = dryRun
         self.emit = emit
+        self.quickAnswerer = ChainedAnswerer.standard(config: config)
         let client = QuotaClient(baseURL: config.openUsageBaseURL)
         self.monitor = QuotaMonitor(client: client, interval: config.quotaRefreshInterval)
         self.router = EngineRouter(policy: config.routing, monitor: monitor)
@@ -44,6 +53,18 @@ public actor VoicePipeline {
     private(set) var conversationDirectory: String
 
     var currentConversationDirectory: String { conversationDirectory }
+
+    /// Test seam: swaps in a conversation store rooted somewhere disposable.
+    ///
+    /// The store this actor builds for itself lives under the real state
+    /// directory, and the fast-tier gate reads history through it — so
+    /// without this seam a test of the gate's input would read whatever the
+    /// person running the suite last said to their own assistant, and could
+    /// never seed a deterministic history without corrupting real state.
+    func useConversationStore(_ store: ConversationStore, directory: String) {
+        conversation = store
+        conversationDirectory = directory
+    }
 
     /// Spoken phrases that clear the conversation. Without an explicit way to
     /// say "forget that", an unrelated new request inherits stale context.
@@ -69,12 +90,19 @@ public actor VoicePipeline {
         // Nearly every utterance is checked against the shortcut list, so fill
         // it now rather than making the first spoken command wait on it.
         Shortcuts.warm()
+        // Same reasoning for the fast-tier model: pay its cold start at
+        // launch rather than inside someone's first answer — Ollama's is
+        // 11.4 s measured. Fired off, not awaited: start() must not wait on
+        // model loading.
+        Task { [quickAnswerer] in await quickAnswerer.prewarm() }
     }
 
     /// Applies a settings change (e.g. a model switch) to subsequent dispatches
     /// without restarting the app.
     public func updateConfig(_ newConfig: Config) {
         let previousDirectory = config.effectiveWorkingDirectory
+        let previousOllamaModel = config.ollamaModel
+        let previousOllamaBaseURL = config.ollamaBaseURL
         config = newConfig
 
         // Conversation memory is keyed by directory, so a project switch made
@@ -87,6 +115,17 @@ public actor VoicePipeline {
                 timeout: newConfig.conversationTimeout
             )
             conversationDirectory = newConfig.effectiveWorkingDirectory
+        }
+
+        // The fast-answer chain bakes in the Ollama knobs, so a change to
+        // them needs a rebuild here — otherwise updateConfig's promise of
+        // "no restart needed" would silently exclude exactly these settings.
+        // The fresh backend gets its own prewarm: the residency bought for
+        // the old model does nothing for the new one.
+        if newConfig.ollamaModel != previousOllamaModel
+            || newConfig.ollamaBaseURL != previousOllamaBaseURL {
+            quickAnswerer = ChainedAnswerer.standard(config: newConfig)
+            Task { [quickAnswerer] in await quickAnswerer.prewarm() }
         }
     }
 
@@ -105,6 +144,29 @@ public actor VoicePipeline {
     private let localCommands = LocalCommandRouter()
     /// Kept for "say that again".
     private var lastSpokenReply: String?
+
+    /// Engine id recorded for turns the fast tier answered — whichever local
+    /// backend produced the words. One id for the whole tier on purpose:
+    /// `codingConversationIsActive` and the resume logic both read "not this
+    /// id" as "a real engine worked here", so labelling Ollama turns
+    /// per-backend would make a run of trivia look like a coding
+    /// conversation. Which backend spoke is a logging concern, not a routing
+    /// one.
+    public static let onDeviceEngineId = "on-device"
+
+    /// Whether the active conversation still counts as *coding* for the
+    /// evidence gate: any active turn ran on a real engine.
+    ///
+    /// Deliberately any turn, not the latest. Judging by the last turn alone
+    /// was a live defect: a single on-device answer after an engine turn
+    /// flipped this false, so the next "make it faster" — aimed at the
+    /// engine's work two turns back — was allowed to try the fast tier, which
+    /// is the misroute that loses work. The reverse error stays cheap: a run
+    /// of pure trivia is all on-device turns, so it still reads false and
+    /// costs the user no fast answers.
+    public static func codingConversationIsActive(_ turns: [ConversationStore.Turn]) -> Bool {
+        turns.contains { $0.engineId != onDeviceEngineId }
+    }
 
     /// One store for the whole session — a timer set by one utterance has to
     /// still be there when a later one cancels or asks about it.
@@ -237,6 +299,58 @@ public actor VoicePipeline {
             return
         case .notMine:
             break
+        }
+
+        // The fast-answer tier: a quick general question gets one shot at a
+        // small local model instead of a twenty-second engine round trip.
+        // Gated twice — task-evidence heuristics here, then the model's own
+        // structured hand-off — because the two misroutes are not equal: a
+        // question sent to an engine is merely slow, while a task swallowed
+        // by the small model is work silently lost. Anything short of a clean
+        // answer falls through to the dispatch path unchanged.
+        if config.fastAnswers {
+            let activeTurns = await conversation.activeTurns()
+            let activeCoding = Self.codingConversationIsActive(activeTurns)
+
+            switch TaskEvidenceGate.classify(transcript.text, activeCodingConversation: activeCoding) {
+            case .engine(let reason):
+                // Surfaced only in dry run: during real use the dispatch path
+                // prints its own routing lines, and the gate reason would be
+                // noise on every single task.
+                if dryRun { emit("  → task evidence: \(reason) — engine only") }
+            case .tryFast:
+                if dryRun {
+                    // The tier decision without the model call, so `voxrouter
+                    // voice --dry-run` shows routing headlessly and offline.
+                    emit("  → would try the fast tier first")
+                    break
+                }
+                // Reuse the cross-engine digest for continuity, so "how tall
+                // is that in metres" can follow "how tall is Everest".
+                let context = activeTurns.isEmpty ? nil : ConversationStore.digest(of: activeTurns)
+                switch await quickAnswerer.answer(transcript.text, context: context) {
+                case .answered(let answer):
+                    emit("  \(answer)")
+                    lastSpokenReply = answer
+                    await say(answer)
+                    // Recorded like any other turn, so a follow-up — on this
+                    // tier or an engine — knows what was just asked.
+                    await conversation.record(
+                        task: transcript.text,
+                        engineId: Self.onDeviceEngineId,
+                        sessionId: nil,
+                        runId: UUID().uuidString,
+                        summary: answer,
+                        succeeded: true
+                    )
+                    return
+                case .escalated(let why):
+                    // A log line only, never spoken: escalation is the boring,
+                    // safe default, and narrating internal tier decisions
+                    // would train the user to tune the assistant out.
+                    emit("  (fast tier passed — \(why); dispatching)")
+                }
+            }
         }
 
         guard !dryRun else {

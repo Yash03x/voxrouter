@@ -325,7 +325,9 @@ extension LocalCommand {
             guard let seconds = DurationParser.seconds(in: invocation.argument) else {
                 return "How long for?"
             }
-            await context.timers.schedule(seconds: seconds)
+            // The returned timer is for callers that need to track it; the
+            // spoken confirmation only needs the duration it was asked for.
+            _ = await context.timers.schedule(seconds: seconds)
             return "Timer set for \(DurationParser.spoken(seconds))."
         }
     )

@@ -74,6 +74,98 @@ struct ConversationStoreTests {
         }
     }
 
+    /// Regression: continuity looked only at the literal last turn, so one
+    /// quick on-device answer after an engine command permanently downgraded
+    /// every follow-up from a full-context resume to the digest preamble.
+    @Test("A quick on-device answer doesn't sever the engine session")
+    func onDeviceTurnKeepsSessionResume() async throws {
+        let conversation = try store()
+        await conversation.record(
+            task: "run the tests", engineId: "claude", sessionId: "sess-1",
+            runId: "r1", summary: "Three tests failed.", succeeded: true
+        )
+        await conversation.record(
+            task: "what's 17 times 23", engineId: VoicePipeline.onDeviceEngineId,
+            sessionId: nil, runId: "r2", summary: "391.", succeeded: true
+        )
+        #expect(
+            await conversation.continuity(for: "claude")
+                == .resumeSession(engineId: "claude", sessionId: "sess-1")
+        )
+    }
+
+    /// When the preamble is the answer — engine changed — the quick Q&A is
+    /// real conversation the follow-up may refer back to, so it stays in.
+    @Test("The preamble still includes on-device turns")
+    func preambleIncludesOnDeviceTurns() async throws {
+        let conversation = try store()
+        await conversation.record(
+            task: "run the tests", engineId: "claude", sessionId: "sess-1",
+            runId: "r1", summary: "Three tests failed.", succeeded: true
+        )
+        await conversation.record(
+            task: "what's 17 times 23", engineId: VoicePipeline.onDeviceEngineId,
+            sessionId: nil, runId: "r2", summary: "391.", succeeded: true
+        )
+        guard case .preamble(let digest) = await conversation.continuity(for: "codex") else {
+            Issue.record("expected a preamble")
+            return
+        }
+        #expect(digest.contains("run the tests"))
+        #expect(digest.contains("what's 17 times 23"))
+    }
+
+    /// A conversation that is only quick questions holds no session anywhere,
+    /// so the best available continuity is the digest.
+    @Test("All on-device turns fall back to a preamble")
+    func allOnDeviceTurnsGivePreamble() async throws {
+        let conversation = try store()
+        await conversation.record(
+            task: "what's the capital of Peru", engineId: VoicePipeline.onDeviceEngineId,
+            sessionId: nil, runId: "r1", summary: "Lima.", succeeded: true
+        )
+        guard case .preamble(let digest) = await conversation.continuity(for: "claude") else {
+            Issue.record("expected a preamble, not a resume or fresh start")
+            return
+        }
+        #expect(digest.contains("capital of Peru"))
+    }
+
+    /// Regression: on-device turns consumed the turn window, so a run of
+    /// quick questions evicted the engine turn holding the recovery point and
+    /// "undo" went blind.
+    @Test("Quick questions don't evict the turn undo needs")
+    func recoveryPointSurvivesQuickQuestions() async throws {
+        let conversation = try store()
+        // A whole second: the archive round-trips through ISO 8601, which
+        // drops fractional seconds, and the comparison below is exact.
+        let recovery = RecoveryPoint(
+            runId: "r0", directory: "/tmp/project-a", head: "abcdef1234567890",
+            branch: "main", dirtyRef: nil,
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        await conversation.record(
+            task: "refactor the parser", engineId: "claude", sessionId: "sess-1",
+            runId: "r0", summary: "done", succeeded: true, recovery: recovery
+        )
+        for index in 1...12 {
+            await conversation.record(
+                task: "quick question \(index)", engineId: VoicePipeline.onDeviceEngineId,
+                sessionId: nil, runId: "r\(index)", summary: "answered", succeeded: true
+            )
+        }
+        let recoverable = await conversation.mostRecentRecoverable()
+        #expect(recoverable?.runId == "r0")
+        #expect(recoverable?.recovery == recovery)
+        // The window cap itself still holds.
+        #expect(await conversation.activeTurns().count == 12)
+        // And the engine session survives alongside the recovery point.
+        #expect(
+            await conversation.continuity(for: "claude")
+                == .resumeSession(engineId: "claude", sessionId: "sess-1")
+        )
+    }
+
     /// A long silence means the user moved on; inheriting yesterday's task is
     /// worse than starting clean.
     @Test("An idle gap ends the conversation")

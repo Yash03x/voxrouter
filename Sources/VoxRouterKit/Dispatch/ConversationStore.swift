@@ -142,11 +142,22 @@ public actor ConversationStore {
     }
 
     /// How to prime a new task, given which engine it will run on.
+    ///
+    /// The turn worth resuming is the newest *engine* turn, not the literal
+    /// last one. Looking only at `turns.last` meant a single quick on-device
+    /// answer ("what's 17 times 23") after an engine command permanently
+    /// downgraded every follow-up from a full-context `--resume` to the
+    /// 300-character digest — the engine's context thrown away over a question
+    /// that never touched it. On-device turns carry no session to resume, so
+    /// they are skipped here; but when the digest *is* the answer they stay in
+    /// it, because a quick Q&A is real conversation the follow-up may refer
+    /// back to.
     public func continuity(for engineId: String, now: Date = Date()) -> Continuity {
         let turns = activeTurns(now: now)
-        guard let last = turns.last else { return .fresh }
+        guard !turns.isEmpty else { return .fresh }
 
-        if last.engineId == engineId, let sessionId = last.sessionId {
+        if let resumable = turns.last(where: { $0.engineId != VoicePipeline.onDeviceEngineId }),
+           resumable.engineId == engineId, let sessionId = resumable.sessionId {
             return .resumeSession(engineId: engineId, sessionId: sessionId)
         }
         return .preamble(Self.digest(of: turns))
@@ -155,8 +166,10 @@ public actor ConversationStore {
     /// Compact history for an engine that can't resume a session.
     ///
     /// Only tasks and outcomes — not full transcripts. The point is to explain
-    /// what "those failures" refers to, not to replay the work.
-    static func digest(of turns: [Turn]) -> String {
+    /// what "those failures" refers to, not to replay the work. Public because
+    /// the fast-answer tier reuses it as conversation context — one digest
+    /// format, wherever a follow-up lands.
+    public static func digest(of turns: [Turn]) -> String {
         let lines = turns.suffix(6).map { turn -> String in
             var line = "- I asked: \"\(turn.task)\""
             if let summary = turn.summary, !summary.isEmpty {
@@ -218,7 +231,31 @@ public actor ConversationStore {
                 recovery: recovery
             ))
             if current.turns.count > maxTurns {
-                current.turns.removeFirst(current.turns.count - maxTurns)
+                // Evict recovery-less turns first, oldest first. Dropping
+                // strictly from the front meant a run of quick on-device
+                // questions (recovery is always nil for those) pushed the one
+                // engine turn holding the repository's pre-task state out of
+                // the window, and "undo" went blind — lost work, not merely
+                // lost context. Widening the undo search instead wouldn't
+                // help: an evicted turn is deleted, so its recovery point is
+                // simply gone, and reaching into earlier, closed conversations
+                // would rewind work the user considers finished. Order is
+                // otherwise stable, and the newest turn is never evicted — it
+                // is the exchange that just happened.
+                var overflow = current.turns.count - maxTurns
+                var kept: [Turn] = []
+                kept.reserveCapacity(maxTurns)
+                for (index, turn) in current.turns.enumerated() {
+                    if overflow > 0, turn.recovery == nil, index < current.turns.count - 1 {
+                        overflow -= 1
+                    } else {
+                        kept.append(turn)
+                    }
+                }
+                // Every survivor is recoverable; the cap still holds, so the
+                // oldest recovery points are the ones to let go.
+                if overflow > 0 { kept.removeFirst(overflow) }
+                current.turns = kept
             }
             archive.conversations[archive.conversations.count - 1] = current
 

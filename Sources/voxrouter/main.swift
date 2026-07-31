@@ -713,6 +713,50 @@ struct VoxRouterCLI {
             print(reply ?? "(done, nothing to say)")
         case .notMine:
             print("(not a local command — this would go to an engine)")
+            await reportFastAnswerTier(for: text, config: config)
+        }
+    }
+
+    /// What the fast-answer tier would do with a phrase — and, when the model
+    /// is actually available, what it says. Printed *after* the existing
+    /// not-a-local-command line, which other tooling greps and must not move.
+    static func reportFastAnswerTier(for text: String, config: Config) async {
+        guard config.fastAnswers else {
+            print("→ fast answers disabled in config — an engine would take this")
+            return
+        }
+
+        // The same rule the voice pipeline applies: an engine turn anywhere in
+        // the active window keeps the conversation a coding one — a run of
+        // fast-tier answers doesn't make an imperative mean the code, and one
+        // trivia answer doesn't stop it meaning the code either.
+        let conversation = ConversationStore(
+            workingDirectory: URL(fileURLWithPath: config.effectiveWorkingDirectory),
+            timeout: config.conversationTimeout
+        )
+        let turns = await conversation.activeTurns()
+        let activeCoding = VoicePipeline.codingConversationIsActive(turns)
+
+        switch TaskEvidenceGate.classify(text, activeCodingConversation: activeCoding) {
+        case .engine(let reason):
+            print("→ engine: \(reason)")
+        case .tryFast:
+            // The same chain the pipeline builds, so what this prints is what
+            // live use would do — naming the backend ("ollama"), so this line
+            // distinguishes an answer from the tier being absent entirely,
+            // and keeps meaning something the day another backend is added.
+            let chain = ChainedAnswerer.standard(config: config)
+            print("→ would try the fast tier first (\(chain.displayName))")
+            let quickContext = turns.isEmpty ? nil : ConversationStore.digest(of: turns)
+            let (outcome, backend) = await chain.attributedAnswer(text, context: quickContext)
+            switch outcome {
+            case .answered(let answer):
+                print("  \(backend ?? "fast tier") answered: \(answer)")
+            case .escalated(.unavailable):
+                print("  (no fast-answer backend available — an engine would answer)")
+            case .escalated(let why):
+                print("  (\(backend ?? "fast tier") escalated: \(why) — an engine would answer)")
+            }
         }
     }
 

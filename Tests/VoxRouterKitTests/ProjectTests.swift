@@ -204,6 +204,44 @@ struct ProjectConfigTests {
         #expect(config.engineEfforts.isEmpty)
         #expect(config.projects.isEmpty)
         #expect(config.activeProjectID == nil)
+        // Including the Ollama knobs, which postdate every config on disk:
+        // their absence must mean the validated defaults, not a dead tier.
+        #expect(config.ollamaModel == "qwen2.5:7b")
+        #expect(config.ollamaBaseURL == URL(string: "http://127.0.0.1:11434"))
+    }
+
+    /// Same data-loss regression, for the field the fast-answer tier added.
+    /// Every config on disk predates `fastAnswers`; its absence must read as
+    /// "on" — the tier ships enabled — and the rest of the file must survive
+    /// the upgrade untouched.
+    @Test("A config written before fastAnswers keeps it on and loses nothing")
+    func fastAnswersDefaultsOnForOldConfigs() throws {
+        let old = """
+        {
+          "workingDirectory": "/tmp/legacy",
+          "engineArgs": { "claude": ["--dangerously-skip-permissions"] },
+          "wakePhrases": ["hello"],
+          "conversationTimeout": 600
+        }
+        """
+        let config = try JSONDecoder().decode(Config.self, from: Data(old.utf8))
+
+        #expect(config.fastAnswers, "an absent key must mean enabled, not off")
+        // And the upgrade cost the file nothing it had.
+        #expect(config.workingDirectory == "/tmp/legacy")
+        #expect(config.engineArgs["claude"] == ["--dangerously-skip-permissions"])
+        #expect(config.wakePhrases == ["hello"])
+        #expect(config.conversationTimeout == 600)
+    }
+
+    /// The opt-out has to actually persist, or turning the tier off would
+    /// silently undo itself on the next config write.
+    @Test("An explicit fastAnswers false survives a round trip")
+    func fastAnswersFalseRoundTrips() throws {
+        var config = Config.default
+        config.fastAnswers = false
+        let decoded = try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(config))
+        #expect(!decoded.fastAnswers)
     }
 
     @Test("An empty object decodes to defaults rather than throwing")
