@@ -22,16 +22,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(togglePopover)
         statusItem = item
 
+        let contentSize = NSSize(width: 340, height: 460)
+        let content = MenuContent(
+            model: model,
+            openHistory: { [weak self] in self?.showHistory() },
+            quit: { NSApplication.shared.terminate(nil) }
+        )
+        .frame(
+            width: contentSize.width,
+            height: contentSize.height,
+            alignment: .topLeading
+        )
+        .background(Color(nsColor: .windowBackgroundColor))
+        let hostingController = NSHostingController(rootView: content)
+        hostingController.view.frame = NSRect(origin: .zero, size: contentSize)
+
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 460)
-        popover.contentViewController = NSHostingController(
-            rootView: MenuContent(
-                model: model,
-                openHistory: { [weak self] in self?.showHistory() },
-                quit: { NSApplication.shared.terminate(nil) }
-            )
-        )
+        popover.contentSize = contentSize
+        popover.contentViewController = hostingController
         self.popover = popover
 
         // The status item is AppKit, so it can be animated directly rather than
@@ -62,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(nil)
         } else {
             Task { @MainActor in await model.refresh() }
+            NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
